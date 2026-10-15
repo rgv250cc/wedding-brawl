@@ -15,7 +15,7 @@ const LAYOUTS = {
 const st = i => page.evaluate(i => { const p = window.Brawl.state.players[i]; return { x: p.x, z: p.z, y: p.y, state: p.state, word: p.move && p.move.word, item: p.item && p.item.type }; }, i);
 const calm = () => page.evaluate(() => {  // keep the bystanders, the photographer and the CPU from interfering
   const S = window.Brawl.state; S.photog && (S.photog.think = 99, S.photog.target = null);
-  for (const p of S.players) { p.hp = 140; if (!['idle', 'walk'].includes(p.state)) { p.state = 'idle'; p.st = 0; } p.x = p === S.players[0] ? .35 : .65; p.z = .5; p.vx = p.vz = 0; }
+  for (const p of S.players) { p.hp = 112; if (!['idle', 'walk'].includes(p.state)) { p.state = 'idle'; p.st = 0; } p.x = p === S.players[0] ? .35 : .65; p.z = .5; p.vx = p.vz = 0; }
   S.puddles.length = 0;
 });
 const out = {}, fails = [];

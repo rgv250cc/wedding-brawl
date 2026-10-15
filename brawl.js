@@ -13,7 +13,7 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v, pick = a => a[Math.floor(R
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const q2 = v => Math.round(v * 100) / 100, q3 = v => Math.round(v * 1000) / 1000;
 const FLOOR = [0.37, 0.97];  // walkable band of the ballroom picture: back and front edge, as fractions of its height
-const HP = 140, ROUND_SECONDS = 60, CROWD = 7;  // guests on the floor at once; with the photographer, 8 bystanders
+const HP = 112, ROUND_SECONDS = 60, CROWD = 7;  // guests on the floor at once; with the photographer, 8 bystanders
 const LEVELS = [  // CPU ladder: seconds between decisions, attacks per second in reach, speed, damage, odds it jumps a flash
   { name: 'EASY', think: 1, rate: 2.2, speed: .72, dmg: .75, dodge: 0 },
   { name: 'MEDIUM', think: .55, rate: 4.5, speed: .92, dmg: 1, dodge: .45 },
@@ -162,7 +162,7 @@ let root, cv, ctx, W = 1, H = 1, S = null, raf = 0, lastT = 0, bg = null, mode =
 let nextId = 1, sentAt = 0, inSeq = 0, startSeq = 0;
 const keys = new Set(), tapped = new Set();  // keys held, and keys pressed since the last frame (a tap shorter than a frame still counts)
 const ctrl = ['cpu', 'cpu'];  // who drives P1 / P2: 'cpu' | 'keys' | 'pad' | 'net' (the online guest)
-const ladder = { beaten: [] }, match = { wins: [0, 0] };
+const ladder = { beaten: [] }, match = { wins: [0, 0], used: [] };
 const rigs = new Map(), imgs = new Map(), evs = [];
 let evSeq = 0;
 const layout = () => mode === '2p' ? LAYOUT.duo : LAYOUT.solo;
@@ -375,7 +375,7 @@ function hurt(v, dmg, dir, word, sound) {
   v.hp = Math.max(0, v.hp - dmg); S.heat = Math.min(2, S.heat + .08 + dmg * .005);
   if (dmg >= 12 && R() < .4) snd('cheerSoft', v.x);
   if (v.item && R() < .3) { const it = v.item; v.item = null; Object.assign(it, { held: null, x: v.x, z: v.z, y: .5, vy: 1.5, vx: -dir * .2 }); }
-  if (!v.hp) return finishThem(v);
+  if (!v.hp) return match.wins[1 - S.players.indexOf(v)] >= 1 ? finishThem(v) : ko(v);  // FINISH THEM! only when this K.O. decides the battle
   if (dmg >= 12 || R() < .12) { set(v, 'down'); snd('thud', v.x); } else set(v, 'hit');
 }
 function grab(e) {
@@ -739,7 +739,7 @@ function update(dt) {
   }
   if (S.phase === 'intro' && !S.called && S.phaseT > 2.8) {
     S.called = true;
-    snd(mode === 'cpu' ? (S.level === 3 ? 'finalround' : `round${S.level}`) : S.round < 6 ? `round${S.round}` : 'finalround');
+    snd(match.wins[0] === 1 && match.wins[1] === 1 ? 'finalround' : `round${Math.min(S.round, 5)}`);
   }
   if (S.phase === 'intro' && S.phaseT > 3.8) { S.phase = 'fight'; S.banner = 'FIGHT!'; S.sub = ''; S.bannerT = .9; snd('fight'); }
   subs(dt);
@@ -750,24 +750,20 @@ function update(dt) {
       const [a, b] = S.players;
       S.phase = 'ko'; S.phaseT = 0; S.banner = 'TIME!'; S.winner = a.hp === b.hp ? null : a.hp > b.hp ? a : b; snd('time');
     }
-  } else if (S.phase === 'intro') { S.banner = mode === 'cpu' ? `LEVEL ${S.level}` : `ROUND ${S.round}`; S.sub = mode === 'cpu' ? LEVELS[S.level - 1].name : ''; }
+  } else if (S.phase === 'intro') { S.banner = `ROUND ${S.round}`; S.sub = mode === 'cpu' ? `LEVEL ${S.level} · ${LEVELS[S.level - 1].name}` : ''; }
   if (S.phase === 'ko') {
     const w = S.winner, wi = S.players.indexOf(w);
     if (S.phaseT > 1.4 && !S.crowned && (!w || !DOWN.has(w.state) || S.phaseT > 4)) {
       S.crowned = true; S.bannerT = 9; if (!S.finished) S.sub = '';
       if (w && !S.finished) talk(w, pick(lines(w.k).concat(GLOAT)), { to: S.players.find(p => p !== w) });
-      if (!w) { S.banner = 'DRAW'; snd('gasp'); }  // same fighters again
-      else if (mode === 'cpu') {
+      if (!w) { S.banner = 'DRAW'; snd('gasp'); }  // the round is replayed
+      else {  // every battle is best of three rounds, each in a different scene
         set(w, 'win'); snd('cheer', w.x); S.guests.forEach(g => g.cheer = 3);
-        const won = wi === 0; S.final = won && S.level === 3;
-        S.banner = S.final ? 'CHAMPION!' : won ? 'YOU WIN!' : 'YOU LOSE'; snd(won ? 'youwin' : 'youlose');
-        if (S.final) S.confetti = 7;
-      } else {
-        set(w, 'win'); snd('cheer', w.x); S.guests.forEach(g => g.cheer = 3);
-        if (mode !== 'demo') match.wins[wi]++;
-        S.final = mode !== 'demo' && match.wins[wi] >= 2;
-        S.banner = S.final ? `${w.name} WINS THE MATCH` : `${w.name} WINS`; snd(w.hp >= HP ? 'flawless' : 'winner');
-        if (S.final) S.confetti = 5;
+        match.wins[wi]++; S.final = match.wins[wi] >= 2;
+        if (mode === 'cpu' && S.final) {
+          const won = wi === 0; S.banner = won && S.level === 3 ? 'CHAMPION!' : won ? 'YOU WIN!' : 'YOU LOSE'; snd(won ? 'youwin' : 'youlose');
+        } else { S.banner = S.final ? `${w.name} WINS THE MATCH` : `${w.name} WINS ROUND ${S.round}`; snd(w.hp >= HP ? 'flawless' : 'winner'); }
+        if (S.final) S.confetti = 6;
       }
     }
     if (S.crowned && !S.next && S.phaseT > (S.final ? 8 : 5.5)) { S.next = true; next(); if (!S) return; }
@@ -1236,7 +1232,7 @@ function hud() {
     label(p.name.toUpperCase(), i ? x + bw : x, y + bh + H * .048, H * .038, i ? 'right' : 'left');
     const who = net ? (i === mySlot() ? 'YOU' : 'ONLINE') : ctrl[i] === 'cpu' ? (mode === 'cpu' ? `CPU · LV${S.level} ${LEVELS[S.level - 1].name}` : 'CPU') : ctrl[i] === 'pad' ? 'PAD' : 'KEYS';
     label(who, i ? x + bw : x, y - H * .012, H * .018, i ? 'right' : 'left', '#ffe066', 'pixel');
-    if (mode === '2p' || mode === 'online') for (let w = 0; w < 2; w++) {  // round wins, best of 3
+    for (let w = 0; w < 2; w++) {  // round wins, best of 3
       const cx = i ? x + bw - H * .02 - w * H * .03 : x + H * .02 + w * H * .03, cy = y + bh + H * .07;
       ctx.beginPath(); ctx.arc(cx, cy, H * .01, 0, TAU); ctx.fillStyle = match.wins[i] > w ? '#ffd23f' : 'rgba(0, 0, 0, .5)'; ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, H * .002); ctx.stroke();
@@ -1305,7 +1301,10 @@ async function newMatch(pair, level = 1, round = 0) {
     const at = spot(guests), g = person(c.k, c.img, 'guest', at.x, at.z);
     g.face = R() < .5 ? 1 : -1; g.stay = 5 + R() * 15; g.wander = R() < .3; guests.push(g);
   }
-  const all = stages(), others = all.filter(s => s.name !== (S && S.stage) && s.img), st = pick(others.length ? others : all);
+  const all = stages().filter(s => s.img);  // a battle's three rounds are in three different scenes
+  let fresh = all.filter(s => !match.used.includes(s.name));
+  if (!fresh.length) { match.used = []; fresh = all.filter(s => s.name !== (S && S.stage)); }
+  const st = pick(fresh.length ? fresh : all); match.used.push(st.name);
   useStage(st); await backdrops.get(st.name);
   if (run !== startSeq) return;
   const ph = photogImg ? person('photog', photogImg, 'photog', R() < .5 ? -.08 : 1.08, .25 + R() * .45) : null;
@@ -1314,16 +1313,16 @@ async function newMatch(pair, level = 1, round = 0) {
   snd('bell');
 }
 function next() {
-  if (!S.winner) return mode === 'demo' ? newMatch() : newMatch(S.pair, S.level);  // a draw: the same fighters again
-  if (mode === 'online') return S.final ? finish(S.players.indexOf(S.winner), 'done') : newMatch(S.pair);
+  if (!S.winner || !S.final) return newMatch(S.pair, S.level, S.round + 1);  // the next round (or a drawn one again): same fighters, a new scene
+  const won = S.winner === S.players[0], wi = S.players.indexOf(S.winner);
+  match.wins = [0, 0]; match.used = [];
+  if (mode === 'online') return finish(wi, 'done');
   if (mode === 'cpu') {
-    const won = S.winner === S.players[0];
     if (won && S.level === 3) return stop();  // champion: back to the photo
     if (won) ladder.beaten.push(S.pair[1]);
-    return newMatch(won ? [S.pair[0], rival()] : S.pair, won ? S.level + 1 : S.level);
+    return newMatch(won ? [S.pair[0], rival()] : S.pair, won ? S.level + 1 : S.level, 1);
   }
-  if (mode === '2p') { if (S.final) match.wins = [0, 0]; return newMatch(S.pair, 1, S.final ? 1 : 0); }
-  newMatch();
+  newMatch(mode === '2p' ? S.pair : null, 1, 1);  // two players: a rematch; the demo: new fighters
 }
 function rival() {  // the next rung of the ladder: an android nobody has beaten yet
   const L = window.LAYERS, used = [S.pair[0], ...ladder.beaten], ok = k => !used.includes(k);
@@ -1515,7 +1514,7 @@ async function start(pair, opts = {}) {
     if (net.role === 'guest') net.offs.push(net.link.onData(d => S && net && unpack(d)));
   }
   ctrl[0] = mode === 'demo' ? 'cpu' : 'keys'; ctrl[1] = mode === '2p' ? 'keys' : mode === 'online' ? 'net' : 'cpu';
-  ladder.beaten = []; match.wins = [0, 0]; evs.length = 0; keys.clear(); tapped.clear();
+  ladder.beaten = []; match.wins = [0, 0]; match.used = []; evs.length = 0; keys.clear(); tapped.clear();
   const bar = root.querySelector('.brawl-bar span');
   if (bar) bar.textContent = `${help(mode === '2p')}${mode === 'demo' ? ' · press any of them to take over P1' : ''} · Controllers: press any button to join · ${CREDITS}`;
   S = null;

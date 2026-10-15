@@ -6,7 +6,10 @@
 const NAMES = { up: 'MOVE UP', left: 'MOVE LEFT', down: 'MOVE DOWN', right: 'MOVE RIGHT', punch: 'PUNCH', kick: 'KICK', grab: 'GRAB / THROW', jump: 'JUMP' };
 const TIPS = [
   'Click a guest to pick your fighter, choose VS CPU, 2 PLAYERS or ONLINE, pick a rival and press FIGHT.',
-  'Grab picks up forks, bottles, shoes, plates and ray guns; grab again to throw. A champagne bottle fires its cork.',
+  'Combos: when a blow lands, keep pressing. Punch, punch, punch = jab, cross, UPPERCUT (launches them: hit them again in the air). Punch, punch, kick = roundhouse. Kick, kick = spin kick.',
+  'Hold a direction to run; punch or kick while running = DROPKICK. Jump and punch or kick for an air attack.',
+  'Grab right next to your rival = SUPLEX. Hold away from your rival to block. The arrow over them means you are in reach.',
+  'Grab next to forks, bottles, shoes, plates and ray guns picks them up; grab again to throw. A champagne bottle fires its cork.',
   'Puddles are slippery. Jump over flying things.',
   'If Moshik the photographer flashes you from the front you are blinded for 2 seconds: turn away or jump.',
   'When your rival\'s health hits zero: FINISH THEM! Press any attack for your finishing move.',

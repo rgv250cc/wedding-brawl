@@ -1,0 +1,10 @@
+# The source photo and everything cut from it stay out of this public repo: they show real, private people.
+wedding.webp
+layers.js
+fighters.js
+# local outputs
+*.mp4
+*.wav
+out/
+node_modules/
+plate_*.jpg

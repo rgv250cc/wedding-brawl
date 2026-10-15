@@ -1,0 +1,13 @@
+{
+  "name": "wedding-brawl",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 8765",
+    "record": "node record.mjs take.mp4",
+    "keytest": "node keytest.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.49.1"
+  }
+}

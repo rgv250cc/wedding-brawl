@@ -47,7 +47,13 @@
   #vs { position: absolute; left: 50%; top: 44%; font: 400 20cqh/1 "Bungee", Impact, sans-serif; color: #ffd23f; -webkit-text-stroke: .6cqh #3a0a00;
     text-shadow: 0 1cqh 0 #000; opacity: 0; transform: translate(-50%, -50%) rotate(-8deg); }
   #rival { position: absolute; right: 7%; top: 47%; font-size: max(9px, 2.2cqh); text-shadow: .3cqh .3cqh 0 #000; opacity: 0; }
-  #fight.on:not(.versus) #rival { animation: blink 1s steps(1) 1s infinite; }
+  #fight.on[data-mode]:not(.versus) #rival { animation: blink 1s steps(1) 1s infinite; }
+  #mode { --dir: 1; position: absolute; right: 7%; top: 30%; display: none; flex-direction: column; gap: 1.8cqh; pointer-events: auto; }
+  #fight.on:not(.versus):not([data-mode]) #mode { display: flex; animation: slam .45s cubic-bezier(.2, 1.4, .4, 1) .5s both; }
+  #mode button { font: 400 max(13px, 3.6cqh)/1 "Bungee", Impact, sans-serif; color: #2a1000; background: linear-gradient(#fff6a8, #ffb300);
+    border: .45cqh solid #2a1000; border-radius: 1cqh; padding: 1cqh 2.6cqh; box-shadow: 0 .7cqh 0 #2a1000; text-align: left; cursor: pointer; backdrop-filter: none; }
+  #mode button:hover, #mode button:focus-visible { background: linear-gradient(#ffffff, #ffd23f); outline: none; transform: translateY(-.3cqh); }
+  #mode small { display: block; margin-top: .7cqh; font: max(7px, 1.4cqh)/1.2 "Press Start 2P", ui-monospace, monospace; color: #5a2a00; }
   #fightbtn { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); display: none; pointer-events: auto; cursor: pointer;
     font: 400 max(14px, 4.5cqh)/1 "Bungee", Impact, sans-serif; color: #2a1000; background: linear-gradient(#fff6a8, #ffb300);
     border: .5cqh solid #2a1000; border-radius: 1cqh; padding: 1.2cqh 3cqh; box-shadow: 0 .8cqh 0 #2a1000; }
@@ -90,6 +96,11 @@
     </section>
     <div id="vs">VS</div>
     <div id="rival">PICK A RIVAL</div>
+    <div id="mode" role="group" aria-label="Who plays player 2">
+      <button data-mode="cpu">VS CPU<small>3 levels, each harder</small></button>
+      <button data-mode="2p">2 PLAYERS<small>same keyboard</small></button>
+      <button data-mode="online">ONLINE<small>lobby: queue or duel a friend</small></button>
+    </div>
     <button id="fightbtn">FIGHT!</button>
   </div>
   <div id="brawl" hidden>
@@ -102,6 +113,7 @@
   <button id="paper" aria-pressed="true">Paper edges</button>
   <button id="sound" aria-pressed="true">Sound</button>
   <button id="brawl-btn">Ballroom brawl</button>
+  <button id="online-btn">Play online</button>
   <button id="tilt" hidden>Enable tilt</button>
   <span id="hint">Move the mouse to look around · click a guest</span>
 </nav>
@@ -110,7 +122,12 @@
 <script src="layers.js"></script>
 <script src="fighters.js" async></script>
 <script src="ballroom.js" async></script>
+<script src="rigs.js"></script>
+<script src="puppet.js"></script>
+<script src="photog.js" async></script>
 <script src="brawl.js" async></script>
+<script src="roomshim.js" async></script>
+<script src="lobby.js" async></script>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }</script>
 <script type="module">
 import * as THREE from 'three';
@@ -294,11 +311,12 @@ function show(el, k) {
 let picked = [];
 function closeFight() {
   for (const el of [p1, p2]) if (el.classList.contains('in')) { el.classList.replace('in', 'out'); setTimeout(() => el.classList.remove('out'), 300); }
-  fight.classList.remove('on', 'versus'); picked = [];
+  fight.classList.remove('on', 'versus'); picked = []; delete fight.dataset.mode;
 }
 canvas.addEventListener('click', () => {
   const k = hovered ? hovered.userData.k : -1;
   if (k < 0 || picked.length === 2 || k === picked[0]) return closeFight();
+  if (picked.length === 1 && !fight.dataset.mode) fight.dataset.mode = 'cpu';  // picked a rival without choosing: they're the CPU
   picked.push(k);
   show(picked.length === 1 ? p1 : p2, k);
   fight.classList.add('on');
@@ -311,12 +329,22 @@ addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.classList.contains('name')) { e.preventDefault(); e.target.blur(); }
 });
 window.guestName = k => names[k] || (NAMED[k] || [`Guest ${k + 1}`])[0];  // the brawl uses the same names
+document.getElementById('mode').onclick = e => {  // after the first pick: who plays player 2
+  const b = e.target.closest('button');
+  if (!b) return;
+  e.stopPropagation();
+  if (window.SFX) { SFX.play('swing'); SFX.play(b.dataset.mode === 'cpu' ? 'arcademode' : 'battlemode'); }
+  if (b.dataset.mode === 'online') { const k = picked[0]; closeFight(); return window.Lobby && window.Lobby.open({ k }); }
+  fight.dataset.mode = b.dataset.mode;
+  document.getElementById('rival').textContent = b.dataset.mode === '2p' ? 'PICK PLAYER 2' : 'PICK A RIVAL';
+};
 document.getElementById('fightbtn').onclick = e => {
   e.stopPropagation();
-  const pair = picked.slice(); closeFight();
-  window.Brawl && window.Brawl.start(pair);
+  const pair = picked.slice(), mode = fight.dataset.mode || 'cpu'; closeFight();
+  window.Brawl && window.Brawl.start(pair, { mode });
 };
 document.getElementById('brawl-btn').onclick = () => window.Brawl && window.Brawl.start();
+document.getElementById('online-btn').onclick = () => window.Lobby && window.Lobby.open();
 document.getElementById('brawl-quit').onclick = () => window.Brawl && window.Brawl.stop();
 fight.addEventListener('input', e => {  // typed names are remembered in this browser
   names[e.target.closest('.fighter').dataset.k] = e.target.textContent.trim();

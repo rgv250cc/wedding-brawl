@@ -2,9 +2,16 @@
 wedding.webp
 layers.js
 fighters.js
+rigs.js
 # local outputs
 *.mp4
 *.wav
 out/
 node_modules/
 plate_*.jpg
+# the photographer is a real person too
+moshik.jpg
+photog.js
+# downloaded third-party sound packs (inputs for make_sounds.py) and review videos
+sound-packs/
+takes/

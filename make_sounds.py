@@ -8,7 +8,7 @@ Sources (download and unzip each into its own folder under SRC):
   swish/     Swishes pack (artisticdude), CC0   https://opengameart.org/node/4693
   crowd/     Crowd cheering, Gregor Quendel, CC BY 4.0 (credit shown in the page)
              https://opengameart.org/content/free-crowd-cheering-sounds
-Usage: python3 make_sounds.py SRC   (needs ffmpeg)"""
+Usage: python3 make_sounds.py sound-packs   (needs ffmpeg; the packs are git-ignored, download them again into sound-packs/)"""
 import sys, re, glob, base64, json, subprocess, os
 
 SRC = sys.argv[1]
@@ -42,7 +42,8 @@ BANK = {
     "cheerSoft": [(SOFT, s, 2.6) for s in (1, 5)],
 }
 for line in ["round_1", "round_2", "round_3", "round_4", "round_5", "final_round", "fight", "winner", "flawless_victory",
-             "choose_your_character", "player_1", "player_2", "prepare_yourself", "time", "combo"]:
+             "choose_your_character", "player_1", "player_2", "prepare_yourself", "time", "combo",
+             "you_win", "you_lose", "arcade_mode", "battle_mode", "ready", "game_over"]:
     BANK[line.replace("_victory", "").replace("_your_character", "").replace("player_", "p").replace("_yourself", "").replace("_", "")] = \
         [(f(line + ".ogg")[0], 0, 3)]
 

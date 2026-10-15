@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Puppet Poses</title>
+<style>
+  :root { --bg: #ece6dc; --ink: #2d2722; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1b1814; --ink: #efe6d8; color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg: #1b1814; --ink: #efe6d8; color-scheme: dark; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  canvas { display: block; max-width: 100%; }
+</style>
+</head>
+<body>
+<p>Pose gallery for the brawl puppets (dev tool): each row is a guest, each column a pose. Chrome parts are limbs the photo doesn't show.</p>
+<canvas id="c"></canvas>
+<script src="layers.js"></script>
+<script src="fighters.js"></script>
+<script src="rigs.js"></script>
+<script src="photog.js"></script>
+<script src="puppet.js"></script>
+<script src="brawl.js"></script>
+<script>
+// the game's own poses (Brawl.POSE), sampled at a moment; "*_wind" is the wind-up before the blow lands
+const B = window.Brawl.POSE, T = 1.3, ITEMS = { drink: 'bottle', swing: 'bottle', aim: 'champagne' };
+const POSES = {
+  stand: B.stand(T), guard: B.guard(T), walk: B.walk(T), march: B.march(T), run: B.run(T),
+  punch_wind: B.punch(T, .1, .4), punch: B.punch(T, .8, .4), kick_wind: B.kick(T, .1, .4), kick: B.kick(T, .8, .4),
+  swing_wind: B.swing(T, .1, .4), swing: B.swing(T, .8, .4), aim: B.aim(), throw: B.throw(), jump: B.jump(), hit: B.hit(),
+  lie: B.lie(), cry: B.cry(T), slip: B.slip(T), swoon: B.swoon(), crouch: B.crouch(), tuck: B.tuck(), flail: B.flail(T), puke: B.puke(T),
+  drink: B.drink(.5), dance: B.dance(T), cheer: B.cheer(T), pee: B.pee(), horse: B.horse(T), rider: B.rider(T), smile: B.smile(),
+  shield: B.shield(), dazed: B.dazed(T), camWalk: B.camWalk(T), camAim: B.camAim(),
+};
+const q = new URLSearchParams(location.search), only = q.get('poses');
+const picks = (q.get('k') === 'all' ? [...window.FIGHTERS.keys()] : q.get('k') ? q.get('k').split(',').map(Number) : [0, 10, 21, 35, 41, 55, 60, 70]).filter(k => window.FIGHTERS[k]);
+if (only) for (const n of Object.keys(POSES)) if (!only.split(',').includes(n)) delete POSES[n];
+(async () => {
+  const load = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = src; });
+  const rows = [...await Promise.all(picks.map(async k => ({ name: 'guest ' + (k + 1), rig: Puppet.rig(await load(FIGHTERS[k]), RIGS[k], { skirt: !LAYERS.cards[k].cy }) })))];
+  if (window.PHOTOG && q.get('photog') !== '0') rows.push({ name: 'photographer', rig: Puppet.rig(await load(PHOTOG), window.PHOTOG_RIG, { skirt: false }) });
+  const cw = +(q.get('cw') || 150), ch = cw * 1.53, names = Object.keys(POSES), cols = +(q.get('cols') || 1), c = document.getElementById('c'), g = c.getContext('2d');
+  const bw = 90 + cw * names.length, per = Math.ceil(rows.length / cols);
+  c.width = bw * cols; c.height = 30 + ch * per;
+  g.fillStyle = getComputedStyle(document.body).color; g.font = '11px system-ui';
+  for (let col = 0; col < cols; col++) names.forEach((n, j) => g.fillText(n, col * bw + 90 + j * cw + 6, 18));
+  rows.forEach((r, i) => {
+    const ox = Math.floor(i / per) * bw, oy = 30 + (i % per) * ch;
+    g.fillText(r.name, ox + 4, oy + ch / 2);
+    names.forEach((n, j) => {
+      const o = Puppet.solve(r.rig, POSES[n]), lying = ['lie', 'cry', 'slip'].includes(n);
+      g.save(); g.translate(ox + 90 + j * cw + cw / 2, oy + ch - 8);
+      if (lying) { g.translate(-cw * .3, -6); g.rotate(-Math.PI / 2); }
+      Puppet.draw(g, r.rig, o, ch - 24, { sink: lying ? 0 : Puppet.sink(r.rig, o),
+        hand: ITEMS[n] ? () => Brawl.drawItem(ITEMS[n], ch - 24, n === 'aim' ? Math.PI / 2 : n === 'drink' ? Math.PI / 2 + .5 : 0, 0, g) : null });
+      g.restore();
+    });
+  });
+  document.title = 'Puppet Poses (ready)';
+})();
+</script>
+</body>
+</html>

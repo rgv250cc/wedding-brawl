@@ -4,8 +4,15 @@
   "type": "module",
   "scripts": {
     "serve": "python3 -m http.server 8765",
-    "record": "node record.mjs take.mp4",
-    "keytest": "node keytest.mjs"
+    "record": "node record.mjs takes/take.mp4",
+    "keytest": "node keytest.mjs",
+    "online": "node server.mjs",
+    "relaytest": "node relaytest.mjs",
+    "nettest": "node nettest.mjs",
+    "lobbytest": "node lobbytest.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "playwright-core": "1.49.1"

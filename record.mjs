@@ -1,11 +1,12 @@
 // Frame-by-frame recorder. The page clock is frozen and stepped 1/30 s at a time; every step is screenshotted and
 // the sound is rendered offline from the same clock, so the video is smooth and in sync however slow the machine is.
-// Run: npm i playwright-core@1.49.1, serve the page folder on :8765, then: node record.mjs take.mp4   (needs ffmpeg)
-// Session: the pop-up intro, pick the groom, pick an older guest, FIGHT, then the groom played from the keyboard.
+// Run: npm install, serve the page folder (npm run serve), then: node record.mjs takes/take.mp4 [url]   (needs ffmpeg)
+// Session: the pop-up intro, pick the groom, choose VS CPU, pick an older guest, FIGHT, then the groom played from the keyboard
+// (one-player keys: WASD, J punch, K kick, L grab/throw, Space jump) through level 1 of the CPU ladder.
 import { chromium } from 'playwright-core';
 import { spawn } from 'child_process';
 import fs from 'fs';
-const OUT = process.argv[2] || 'take.mp4', FPS = 30, DT = 1000 / FPS, VW = 1280, VH = 860;
+const OUT = process.argv[2] || 'take.mp4', URL = process.argv[3] || 'http://localhost:8765/', FPS = 30, DT = 1000 / FPS, VW = 1280, VH = 860;
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: VW, height: VH }, colorScheme: 'dark' });
 await page.addInitScript(() => {  // virtual clock: time moves only when the recorder calls __step
@@ -27,8 +28,8 @@ await page.addInitScript(() => {  // virtual clock: time moves only when the rec
   };
 });
 const t0 = Date.now(), log = (...a) => console.log(((Date.now() - t0) / 1000).toFixed(0).padStart(4) + 's', ...a);
-await page.goto('http://localhost:8765/');
-for (let i = 0; !(await page.evaluate(() => !!(window.LAYERS && window.FIGHTERS && window.Brawl && window.SFX && window.SOUNDS && window.BALLROOM))); i++) {
+await page.goto(URL);
+for (let i = 0; !(await page.evaluate(() => !!(window.LAYERS && window.FIGHTERS && window.Brawl && window.SFX && window.SOUNDS && window.BALLROOM && window.Puppet && window.PHOTOG))); i++) {
   if (i > 300) throw new Error('page never finished loading');
   await new Promise(r => setTimeout(r, 100));
 }
@@ -65,7 +66,10 @@ async function glide(to, seconds) {  // move the pointer smoothly, one step per 
 await page.mouse.move(...mouse);
 await step(Math.round(3.2 * FPS));
 await glide(at(.617, .652), .9); await page.mouse.click(...mouse); log('picked', await page.textContent('.p1 .name'));   // the groom
-await step(Math.round(2.2 * FPS));
+await step(Math.round(1.6 * FPS));
+const vs = await page.evaluate(() => document.querySelector('#mode [data-mode="cpu"]').getBoundingClientRect().toJSON());
+await glide([vs.left + vs.width / 2, vs.top + vs.height / 2], .6); await page.mouse.click(...mouse); log('mode: VS CPU');
+await step(Math.round(1 * FPS));
 await glide(at(.754, .59), .9); await page.mouse.click(...mouse); log('rival', await page.textContent('.p2 .name'));  // an older guest
 await step(Math.round(2.3 * FPS));
 const b = await page.evaluate(() => document.querySelector('#fightbtn').getBoundingClientRect().toJSON());
@@ -88,7 +92,7 @@ for (;;) {
   });
   if (!s) { await step(); continue; }
   if (!fightStart && s.phase === 'fight') fightStart = vt();
-  if (s.round > 1 || (koAt && vt() - koAt > 5.5) || (fightStart && vt() - fightStart > 75)) break;
+  if (s.round > 1 || (koAt && vt() - koAt > 6) || (fightStart && vt() - fightStart > 75)) break;
   if (s.phase === 'ko' && !koAt) { koAt = vt(); log('round over at', vt().toFixed(1) + 's of video:', s.a.name, Math.round(s.a.hp), 'vs', s.b.name, Math.round(s.b.hp)); }
   if (s.phase !== 'fight') { for (const k of [...held]) await key(k, false); await step(); continue; }
   const me = s.a, foe = s.b, d = o => Math.hypot(o.x - me.x, (o.z - me.z) * 1.5);
@@ -102,14 +106,14 @@ for (;;) {
   await key('d', (far && dx > 0) || (close && dx < 0)); await key('a', (far && dx < 0) || (close && dx > 0));
   await key('s', dz > .02); await key('w', dz < -.02);
   if ((me.st === 'idle' || me.st === 'walk') && me.cd <= 0) {  // only when free to act
-    if (mode === 'loot' && Math.abs(dx) < .035 && Math.abs(dz) < .035) { await tap('v'); log('grabs a', tgt.type); }
+    if (mode === 'loot' && Math.abs(dx) < .035 && Math.abs(dz) < .035) { await tap('l'); log('grabs a', tgt.type); }
     else if (mode !== 'loot' && Math.abs(dz) < .04 && Math.abs(dx) < (mode === 'foe' && ranged ? .5 : want + .03)) {
       if (Math.sign(dx) !== me.face) { await key('d', false); await key('a', false); await tap(dx > 0 ? 'd' : 'a'); await step(); }  // turn round first
-      if (mode === 'guest') { await tap('x'); chaos--; log('flattens a bystander'); }
-      else if (ranged) { await tap(me.item === 'champagne' || me.item === 'raygun' ? 'x' : 'v'); log('lets fly with the', me.item); }
-      else if (DOWN.includes(foe.st)) { if (Math.random() < .03) await tap('z'); }  // no hitting a man when he's down
-      else if (Math.random() < (me.hp < 50 ? .18 : .12)) await tap(Math.random() < .6 ? 'x' : 'c');
-    } else if (Math.random() < .01) await tap('z');
+      if (mode === 'guest') { await tap('j'); chaos--; log('flattens a bystander'); }
+      else if (ranged) { await tap(me.item === 'champagne' || me.item === 'raygun' ? 'j' : 'l'); log('lets fly with the', me.item); }
+      else if (DOWN.includes(foe.st)) { if (Math.random() < .03) await tap(' '); }  // no hitting a man when he's down
+      else if (Math.random() < (me.hp < 50 ? .18 : .12)) await tap(Math.random() < .6 ? 'j' : 'k');
+    } else if (Math.random() < .01) await tap(' ');
   }
   await step();
 }

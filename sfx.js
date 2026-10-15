@@ -7,9 +7,10 @@
 'use strict';
 let ac = null, out = null, noise = null, muted = false, log = null;
 const R = Math.random, last = {}, BANK = {};
-const GAP = { cry: .35, puke: .3, gasp: .6, cheer: 1.2, cheerSoft: .9, ufo: 2.3, tick: .025, paper: .03, splat: .12, thud: .06, flap: .5, boing: .2, faint: .3, clatter: .05 };
+const GAP = { cry: .35, puke: .3, gasp: .6, cheer: 1.2, cheerSoft: .9, ufo: 2.3, tick: .025, paper: .03, splat: .12, thud: .06, flap: .5, boing: .2, faint: .3,
+  clatter: .05, hic: .3, clop: .2, daze: 1, shutter: .3, beep: .2 };
 const GAIN = { cheer: .5, cheerSoft: .45, ufo: .45, beam: .6, paper: .22, swing: .45, swingHeavy: .5, splat: .65, clatter: .45, metal: .6, bell: .7, boom: .85, thud: .75, pop: .9 };
-const VOICE = /^(round\d|finalround|fight|winner|flawless|choose|p[12]|prepare|time|combo)$/;
+const VOICE = /^(round\d|finalround|fight|winner|flawless|choose|p[12]|prepare|time|combo|youwin|youlose|arcademode|battlemode|ready|gameover)$/;
 function ensure() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!ac && AC && !log) {
@@ -100,6 +101,24 @@ const S = {  // synthesised fallbacks and the sounds no free recording covered
       if (n % 8 === 4) hiss(b, 'bandpass', 1800, 1800, t + s, .12, .3, 1);  // clap
     }
   },
+  shutter: (b, t, p) => {  // camera: two mechanical clicks, then the flash recharging
+    for (const d of [0, .07]) { hiss(b, 'bandpass', 3200 * p, 1600 * p, t + d, .016, .6, 3, .001); osc(b, 'triangle', 1500 * p, 800 * p, t + d, .012, .25, .001); }
+    osc(b, 'sine', 900 * p, 2200 * p, t + .16, .2, .05, .5);
+  },
+  daze: (b, t, p) => {  // seeing stars: a run of quick high chirps with vibrato
+    for (let i = 0; i < 6; i++) {
+      const f = (1900 + 300 * (i % 3)) * p, s = t + i * .16, o = osc(b, 'sine', f, f * 1.5, s, .11, .18, .01);
+      wobble(o, s, .12, 32, f * .04);
+    }
+  },
+  hic: (b, t, p) => { hiss(b, 'bandpass', 1200 * p, 2200 * p, t, .05, .12, 1.5, .01); osc(b, 'sawtooth', 300 * p, 680 * p, t + .02, .1, .24, .01); },
+  clop: (b, t, p) => {  // two hollow coconut-shell hoof beats
+    for (const d of [0, .12]) {
+      osc(b, 'sine', 560 * p, 380 * p, t + d, .09, .55, .002); osc(b, 'sine', 900 * p, 600 * p, t + d, .04, .15, .001);
+      hiss(b, 'bandpass', 1900 * p, 1200 * p, t + d, .02, .35, 3, .001);
+    }
+  },
+  beep: (b, t, p) => { for (const d of [0, .1]) osc(b, 'sine', 2700 * p, 2700 * p, t + d, .05, .12, .003); },  // camera autofocus, quiet
 };
 
 function sound(name, t, o) {  // schedule one sound at time t on the current context

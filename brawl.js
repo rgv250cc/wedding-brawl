@@ -1827,9 +1827,9 @@ function curseFx(e) {  // what floats around a cursed fighter
     const [ax, ay] = sp.spot === 'head' ? at(e, 1.0) : [hx, hy], iw = h * .14 * (+sp.size || 1) / (P.w || .6), ih = iw * P.im.height / P.im.width, [cx, cy] = P.center || [.5, .5];
     ctx.drawImage(P.im, ax - cx * iw, ay - cy * ih, iw, ih);
   } else if (e.curse === 'swarm' && P && e.state === 'cursed') {  // a cloud of them buzzing about, darting in and out
-    const n = clamp(+sp.n || 6, 3, 12), sz = h * clamp(+sp.size || .1, .04, .25), iw = sz * P.im.width / Math.max(P.im.width, P.im.height), ih = sz * P.im.height / Math.max(P.im.width, P.im.height);
-    for (let i = 0; i < n; i++) {
-      const q = t * (1.6 + i * .17) + i * 2.4, x = e.X + Math.cos(q) * h * (.22 + .08 * Math.sin(t * 3 + i)), y = e.Y - h * (.55 + .3 * Math.sin(q * 1.3 + i)), dir = -Math.sin(q) < 0 ? -1 : 1;
+    const n = clamp(+sp.n || 7, 6, 12), sz = h * clamp((+sp.size || .1) * 1.7, .13, .3), iw = sz * P.im.width / Math.max(P.im.width, P.im.height), ih = sz * P.im.height / Math.max(P.im.width, P.im.height);
+    for (let i = 0; i < n; i++) {  // big enough to read: they crowd round the head and body, darting in front and behind
+      const q = t * (1.6 + i * .17) + i * 2.4, x = e.X + Math.cos(q) * h * (.17 + .06 * Math.sin(t * 3 + i)), y = e.Y - h * (.62 + .26 * Math.sin(q * 1.3 + i)), dir = -Math.sin(q) < 0 ? -1 : 1;
       ctx.save(); ctx.translate(x, y); ctx.scale(dir * (P.facing === 'left' ? -1 : 1), 1); ctx.rotate(Math.sin(t * 9 + i) * .25); ctx.drawImage(P.im, -iw / 2, -ih / 2, iw, ih); ctx.restore();
     }
   } else if (e.curse === 'disco' && e.state === 'cursed') {
@@ -1869,6 +1869,28 @@ function drawSpot(s) {  // the room's objects, as paper cut-outs with a white ri
   ctx.save(); ctx.translate(s.x * W, feetY(s.z)); ctx.lineJoin = 'round'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.2 * u;
   const box = (x, y, w, hh, fill, r = 2) => { ctx.beginPath(); ctx.roundRect(x * u, y * u, w * u, hh * u, r * u); ctx.fillStyle = fill; ctx.fill(); ctx.stroke(); };
   const sign = (t, y, fill = '#ffd23f') => label(t, 0, y * u, 7 * u, 'center', fill, 'pixel');
+  const photo = (key, hh, x = 0, y = 0, flip = 1) => {  // a cut-out photo standing on its base at (x, y), hh tall (in u); false if it isn't loaded
+    const P = prop(key);
+    if (!P) return false;
+    const ih = hh * u, iw = ih * P.im.width / P.im.height, [bx, by] = P.base || [.5, 1];
+    ctx.save(); ctx.translate(x * u, y * u); ctx.scale(flip, 1); ctx.drawImage(P.im, -bx * iw, -by * ih, iw, ih); ctx.restore();
+    return true;
+  };
+  const PHOTO = { bar: ['bar', 72, 'BAR', '#ffd23f'], gifts: ['gifts', 38, 'GIFTS', '#ffd23f'], booth: ['booth', 112, 'PHOTO', '#fff'], loo: ['loo', 120, 'WC', '#7dff6a'] };
+  if (s.key === 'dj' && prop('dj')) {  // the photo DJ booth on its blinking dance floor
+    ctx.save(); ctx.scale(1, .28); ['#ff4d6d', '#ffd23f', '#4dd2ff', '#7dff6a'].forEach((c, i) => {
+      ctx.globalAlpha = .35 + .25 * (Math.floor(S.t * 4 + i) % 2); ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(0, 0, (90 - i * 18) * u, (90 - i * 18) * u, 0, 0, TAU); ctx.fill(); });
+    ctx.restore(); ctx.globalAlpha = 1; photo('dj', 62); sign('DJ', -70, '#ff6ad5'); return ctx.restore();
+  }
+  if (s.key === 'cake' && prop('caketable') && prop('wcake')) {  // the wedding cake on its table
+    const T = prop('caketable'), top = (T.top ? T.top[1] - (T.base || [.5, 1])[1] : -.9) * 44;
+    photo('caketable', 44); photo('wcake', 42, 0, top + 2); sign('CAKE', top - 48, '#ff9ec0'); return ctx.restore();
+  }
+  if (s.key === 'chairs' && prop('xchair')) { photo('xchair', 52, -16, 0, -1); photo('xchair', 52, 16, 0, 1); return ctx.restore(); }
+  if (PHOTO[s.key] && prop(PHOTO[s.key][0])) {
+    const [key, hh, txt, col] = PHOTO[s.key], busy = s.key === 'loo' && S.people.some(p => p.state === 'loo');
+    photo(key, hh); sign(busy ? 'BUSY' : txt, -hh - 7, busy ? '#ff4d3a' : col); return ctx.restore();
+  }
   switch (s.key) {
     case 'bar':
       box(-46, -40, 92, 40, '#7a4a22'); box(-50, -45, 100, 7, '#a8703a');

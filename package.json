@@ -9,7 +9,8 @@
     "online": "node server.mjs",
     "relaytest": "node relaytest.mjs",
     "nettest": "node nettest.mjs",
-    "lobbytest": "node lobbytest.mjs"
+    "lobbytest": "node lobbytest.mjs",
+    "combattest": "node combattest.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

@@ -53,7 +53,7 @@ try {
   check(Math.abs(seen[0] - truth[0]) < .06 && Math.abs(seen[1] - truth[1]) < .06, 'both screens agree where the fighters are',
         `host ${truth.map(v => v.toFixed(3))} guest ${seen.map(v => v.toFixed(3))}`);
   // the guest punches: the host must see P2 attack
-  const attacked = host.page.waitForFunction(() => { const p = window.Brawl.state.players[1]; return p.state === 'attack' && p.move && p.move.word === 'POW!'; }, null, { timeout: 4000 }).then(() => true, () => false);
+  const attacked = host.page.waitForFunction(() => { const p = window.Brawl.state.players[1]; return p.state === 'attack' && !!p.move; }, null, { timeout: 4000 }).then(() => true, () => false);
   await guest.page.keyboard.press('j');
   check(await attacked, "guest's J punches on the host's screen");
   const guestSees = await until(guest.page, () => window.Brawl.state.players[1].state === 'attack' || window.Brawl.state.players[1].move, null, 3000);

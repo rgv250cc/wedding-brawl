@@ -52,6 +52,11 @@ Two players on one keyboard:
 
 Controllers join by pressing any button (A jump, B grab/throw, X punch, Y kick). Esc leaves the fight.
 
+Fighting: punches and kicks chain when they land (jab > cross > uppercut launches into a juggle; jab > cross > kick is a
+roundhouse; kick > kick is a spin kick). Hold a direction to run, then punch or kick for a dropkick. Punch or kick in the
+air for air attacks. Grab right next to your rival to suplex them. Hold away from your rival to block. A red or blue
+glow marks each fighter (it shows through anyone in front), and an arrow over your rival means your next blow will land.
+
 The **Controls** button on the main page explains how to play and lets you remap every key (saved in your browser).
 
 ## Online play

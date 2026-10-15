@@ -15,21 +15,34 @@ const q2 = v => Math.round(v * 100) / 100, q3 = v => Math.round(v * 1000) / 1000
 const FLOOR = [0.37, 0.97];  // walkable band of the ballroom picture: back and front edge, as fractions of its height
 const HP = 112, ROUND_SECONDS = 60, CROWD = 7;  // guests on the floor at once; with the photographer, 8 bystanders
 const LEVELS = [  // CPU ladder: seconds between decisions, attacks per second in reach, speed, damage, odds it jumps a flash
-  { name: 'EASY', think: 1, rate: 2.2, speed: .72, dmg: .75, dodge: 0 },
-  { name: 'MEDIUM', think: .55, rate: 4.5, speed: .92, dmg: 1, dodge: .45 },
-  { name: 'HARD', think: .3, rate: 8, speed: 1.12, dmg: 1.3, dodge: .9 },
+  { name: 'EASY', think: 1, rate: 2.2, speed: .72, dmg: .75, dodge: 0, block: .05, combo: .25, grab: .03 },  // + odds it blocks, chains, throws
+  { name: 'MEDIUM', think: .55, rate: 4.5, speed: .92, dmg: 1, dodge: .45, block: .2, combo: .6, grab: .1 },
+  { name: 'HARD', think: .3, rate: 8, speed: 1.12, dmg: 1.3, dodge: .9, block: .4, combo: .9, grab: .2 },
 ];
 const DROPS = ['fork', 'fork', 'bottle', 'bottle', 'champagne', 'champagne', 'shoe', 'shoe', 'plate'];
-const MOVES = {  // reach in floor widths; t = whole move, hit = moment the blow lands (seconds)
-  fist: { dmg: 6, reach: .055, t: .28, hit: .1, word: 'POW!', snd: 'punch' },
-  kick: { dmg: 9, reach: .07, t: .42, hit: .18, word: 'WHAM!', snd: 'kick', low: true },
-  fork: { dmg: 9, reach: .075, t: .3, hit: .12, word: 'POKE!', snd: 'poke' },
-  bottle: { dmg: 13, reach: .075, t: .38, hit: .16, word: 'CLONK!', snd: 'clonk' },
-  champagne: { dmg: 10, reach: .075, t: .38, hit: .16, word: 'BONK!', snd: 'bonk' },
-  shoe: { dmg: 7, reach: .065, t: .3, hit: .12, word: 'THWACK!', snd: 'thwack' },
-  plate: { dmg: 8, reach: .065, t: .3, hit: .12, word: 'CRASH!', snd: 'crash' },
-  raygun: { dmg: 8, reach: .07, t: .3, hit: .12, word: 'BONK!', snd: 'bonk' },
+const MOVES = {  // reach in floor widths; t = the whole move, hit = when it lands (s); stun = how long the victim reels, kb = knockback,
+  // launch = sends them up for a juggle, knock = knocks them down; pose = how the puppet moves; heavy = a big swing sound
+  jab: { dmg: 4, reach: .058, t: .22, hit: .07, stun: .34, kb: .1, word: 'JAB!', snd: 'punch', pose: 'punch' },
+  cross: { dmg: 5, reach: .062, t: .26, hit: .08, stun: .36, kb: .14, word: 'POW!', snd: 'punch', pose: 'punch' },
+  upper: { dmg: 7, reach: .058, t: .4, hit: .12, launch: 2.5, kb: .12, word: 'UPPERCUT!', snd: 'kick', pose: 'upper', heavy: 1 },
+  round: { dmg: 9, reach: .075, t: .44, hit: .16, knock: 1, kb: .55, word: 'WHAM!', snd: 'kick', pose: 'kick', heavy: 1 },
+  low: { dmg: 4, reach: .07, t: .28, hit: .1, stun: .32, kb: .1, word: 'TRIP!', snd: 'thwack', pose: 'lowkick', low: 1 },
+  snap: { dmg: 5, reach: .07, t: .3, hit: .1, stun: .36, kb: .16, word: 'SNAP!', snd: 'kick', pose: 'kick' },
+  spin: { dmg: 9, reach: .08, t: .48, hit: .2, knock: 1, kb: .6, word: 'SPIN KICK!', snd: 'kick', pose: 'spin', heavy: 1 },
+  dropkick: { dmg: 10, reach: .085, t: .5, hit: .14, knock: 1, kb: .7, lunge: .5, word: 'DROPKICK!', snd: 'kick', pose: 'dropkick', heavy: 1 },
+  airp: { dmg: 5, reach: .065, t: .3, hit: .08, stun: .36, kb: .12, word: 'BOP!', snd: 'punch', pose: 'punch', air: 1 },
+  airk: { dmg: 7, reach: .078, t: .42, hit: .1, knock: 1, kb: .45, word: 'FLYING KICK!', snd: 'kick', pose: 'airkick', air: 1, heavy: 1 },
+  fork: { dmg: 8, reach: .07, t: .3, hit: .12, stun: .36, kb: .15, word: 'POKE!', snd: 'poke', pose: 'punch' },
+  bottle: { dmg: 11, reach: .07, t: .38, hit: .16, stun: .4, kb: .3, word: 'CLONK!', snd: 'clonk', pose: 'swing', heavy: 1 },
+  champagne: { dmg: 9, reach: .07, t: .38, hit: .16, stun: .4, kb: .25, word: 'BONK!', snd: 'bonk', pose: 'swing' },
+  shoe: { dmg: 6, reach: .062, t: .3, hit: .12, stun: .36, kb: .15, word: 'THWACK!', snd: 'thwack', pose: 'swing' },
+  plate: { dmg: 7, reach: .062, t: .3, hit: .12, stun: .36, kb: .2, word: 'CRASH!', snd: 'crash', pose: 'swing' },
+  raygun: { dmg: 7, reach: .065, t: .3, hit: .12, stun: .36, kb: .15, word: 'BONK!', snd: 'bonk', pose: 'swing' },
+  fist: { dmg: 0, reach: 0, t: .3, hit: .1, word: '', snd: 'swing', pose: 'throw' },  // throwing what's in hand: no blow of its own
 };
+for (const k in MOVES) MOVES[k].key = k;
+// what a landed blow can cancel into (hit-confirm chains): jab > cross > uppercut (launch) or roundhouse; low kick > spin kick
+const CHAIN = { jab: { punch: 'cross', kick: 'snap' }, cross: { punch: 'upper', kick: 'round' }, low: { punch: 'jab', kick: 'spin' }, snap: { punch: 'cross', kick: 'spin' } };
 const THROWN = { cork: [10, 'POP!', 'thwack'], laser: [12, 'ZAP!', 'zap'], fork: [9, 'POKE!', 'poke'], bottle: [12, 'SMASH!', 'smash'],
                  champagne: [11, 'BONK!', 'bonk'], shoe: [8, 'THWACK!', 'thwack'], plate: [9, 'CRASH!', 'crash'], raygun: [9, 'BONK!', 'bonk'] };
 const CRIES = ['WAAAH!', 'MY DRESS!', 'NOT AT A WEDDING!', 'MOMMY!', 'OW OW OW', 'WHY ME?!', 'MY HAIR!'];
@@ -37,7 +50,7 @@ const GASPS = ['OMG!', 'WOOO!', 'FIGHT! FIGHT!', 'CALL SECURITY!', 'NOT THE CAKE
 const EWW = ['EWW!', 'GROSS!', 'MY SHOES!', 'NOT AGAIN!', 'BLEUGH'];
 const NOPE = ['NO!', 'NOOO!', 'NO PHOTOS!', 'NOT MY BAD SIDE!', 'I LOOK AWFUL!'];
 const SMILE = ['SMILE!', 'SAY CHEESE!', 'LOOK HERE!', 'GORGEOUS!', 'ONE MORE!', 'FOR THE ALBUM!'];
-const DOWN = new Set(['down', 'cry', 'ko', 'slip', 'getup', 'faint', 'flip', 'beam', 'fall']);  // can't be hit or act
+const DOWN = new Set(['down', 'cry', 'ko', 'slip', 'getup', 'faint', 'flip', 'beam', 'fall', 'grabbed']);  // can't be hit or act
 // what the fighters say (subtitles + cartoon blips, no voice). {T} = the other fighter. Each guest's own 1-2 punchlines
 // come from nicknames.js (NICKNAMES[k].lines) and are used at random moments and after a combo.
 const TAUNT = ['{T}, you dance like a folding chair!', 'I\'m gonna toast you, {T}!', 'You\'re going home in a doggy bag!', 'This is MY dance floor!',
@@ -123,6 +136,15 @@ const POSE = {
                                : { torso: -.3, fUA: [D - .9], fFA: [-.5], bUA: [D + 1.2], bFA: [D + .5], ...legs(-.15, D + .15, -.1, D + .15) },
   swing: (t, p, hit) => p < hit ? { torso: -.15, fUA: [-D - .5], fFA: [-D - .9], bUA: [D + .3], bFA: [-.6], ...STANCE }  // overhead, with what's in hand
                                 : { torso: .25, fUA: [.5], fFA: [.75], bUA: [D + .6], bFA: [-.8], ...LUNGE },
+  upper: (t, p, hit) => p < hit ? { torso: .25, fUA: [D + .3], fFA: [D - .2], bUA: [D + .5], bFA: [-1.2], ...legs(D - .5, D + .3, D + .4, D + .5) }
+                                : { torso: -.25, head: -.2, fUA: [-1.35], fFA: [-1.55], bUA: [D + .6], bFA: [-1.2], ...legs(D - .15, D + .2, D - .05, D + .3) },
+  lowkick: (t, p, hit) => p < hit ? { torso: .05, ...GUARD, ...legs(D - .5, D + .1, D + .2, D + .1) } : { torso: .15, ...GUARD, ...legs(D - 1.15, D + .15, D - 1.05, D + .2) },
+  spin: (t, p, hit) => p < hit ? { torso: -.2, fUA: [D - .9], bUA: [D + 1.1], ...legs(D - .9, D + .15, D + .4, D + .2) }
+                               : { torso: -.5, head: -.2, fUA: [D - 1.2], fFA: [-.2], bUA: [D + 1.3], ...legs(-.45, D + .2, -.4, D + .3) },
+  dropkick: () => ({ torso: -.6, head: -.3, fUA: [-D - .6], bUA: [-D - .3], ...legs(-.25, -.05, -.2, 0) }),
+  airkick: () => ({ torso: -.3, fUA: [-1.2], bUA: [D + 1.2], ...legs(-.15, D - .6, -.1, D + .3) }),
+  grip: () => ({ torso: .1, fUA: [-.3], fFA: [-.6], bUA: [-.2], bFA: [-.5], ...LUNGE }),
+  sprint: t => ({ ...stride(t, .65, 1), torso: .3, fUA: [D + .7 * Math.sin(t)], fFA: [-.6], bUA: [D - .7 * Math.sin(t)], bFA: [-.6] }),
   aim: () => ({ torso: -.05, fUA: [-.05], fFA: [-.05], bUA: [.35], bFA: [-.1], ...LUNGE }),
   throw: () => ({ torso: .25, fUA: [-.35], fFA: [-.1], bUA: [D + .7], bFA: [D], ...LUNGE }),
   jump: () => ({ torso: .1, fUA: [-.9], fFA: [-1.5], bUA: [-1.3], bFA: [-1.9], ...legs(D - 1.1, D - .5, D + .2, D + .6) }),
@@ -179,7 +201,7 @@ function useStage(st) {  // switch scene; the picture decodes in the background 
   backdrops.get(st.name).then(im => { if (stage === st) bg = im; });
 }
 const feetY = z => H * (stage.floor[0] + z * (stage.floor[1] - stage.floor[0]));
-const tall = z => H * (stage.tall[0] + (stage.tall[1] - stage.tall[0]) * z);  // a person's height on screen at depth z (0 = back of the floor)
+const tall = z => H * .85 * (stage.tall[0] + (stage.tall[1] - stage.tall[0]) * z);  // a person's height on screen at depth z (0 = back of the floor)
 const logEv = (...a) => { if (net && net.role === 'host') evs.push([++evSeq, performance.now(), ...a]); };  // replayed by the online guest
 const snd = (name, x = .5, o = {}) => {
   logEv('s', name, q2(x), q2(o.pitch || 1), q2(o.vol ?? 1), o.dur || 0);
@@ -319,38 +341,75 @@ function pukeStream(e, dt, splat) {  // projectile style; some of it lands as mo
 function tears(e, dt) { if (R() < dt * 6) { const [x, y] = at(e, .9); spray(x, y, 2, '#7fd3ff', 0, H * .25, e.h * .012, .6, true); } }
 
 // ---- fighting
-function attack(e, kind) {
-  if (e.cd > 0) return;
+function attack(e, kind) {  // punch or kick: starts a chain, continues one after a landed blow, or an air / running attack
   const it = e.item;
-  if (it && it.ammo > 0 && kind === 'punch' && it.type === 'champagne') return fireCork(e);
-  if (it && it.ammo > 0 && kind === 'punch' && it.type === 'raygun') return fireLaser(e);
-  e.move = MOVES[it ? it.type : kind === 'kick' ? 'kick' : 'fist'];
-  set(e, 'attack'); e.cd = e.move.t + .06; e.vx += e.face * .1;
-  snd(kind === 'kick' ? 'swingHeavy' : 'swing', e.x);
+  if (it && it.ammo > 0 && kind === 'punch' && (it.type === 'champagne' || it.type === 'raygun')) { if (e.cd > 0) return; return it.type === 'champagne' ? fireCork(e) : fireLaser(e); }
+  const cur = e.state === 'attack' && e.move, chained = !!(cur && e.hitConfirm);
+  let key;
+  if (e.y > .05) { if (e.airDone) return; key = kind === 'kick' ? 'airk' : 'airp'; e.airDone = true; }
+  else if (it) key = it.type;
+  else if ((e.running || S.t - (e.ranAt ?? -9) < .15) && !chained) key = 'dropkick';  // a short grace: letting go as you kick still counts
+  else if (chained && CHAIN[cur.key]) key = CHAIN[cur.key][kind];
+  else key = kind === 'kick' ? 'low' : 'jab';
+  if (!key || !MOVES[key]) return;
+  e.chainN = chained ? (e.chainN || 1) + 1 : 1;
+  if (it && e.chainN > 3) return;
+  faceFoe(e);
+  e.move = MOVES[key]; set(e, 'attack'); e.hitConfirm = false;
+  e.vx = e.move.lunge ? e.face * e.move.lunge : e.vx + e.face * .06;
+  snd(e.move.heavy ? 'swingHeavy' : 'swing', e.x, { pitch: e.move.heavy ? .9 : 1.15 });
+}
+function faceFoe(e) {  // a blow turns toward a rival who is close and in the lane, so it's never thrown the wrong way by accident
+  const f = e.role === 'fighter' && S.players.find(p => p !== e);
+  if (f && Math.abs(f.z - e.z) < .08 && Math.abs(f.x - e.x) < .2) e.face = Math.sign(f.x - e.x) || e.face;
+}
+const canCancel = e => e.state === 'attack' && e.hitConfirm && e.st >= e.move.hit + .03 && (CHAIN[e.move.key] || (e.item && e.move.key === e.item.type));
+function blocks(v, a) {  // hold away from the attacker to block; the CPU blocks by chance, more on harder levels
+  if (v.role !== 'fighter' || a.role !== 'fighter' || v.y > .05 || !['idle', 'walk', 'block'].includes(v.state)) return false;
+  if (isCpu(v)) return v.state === 'block' || R() < (v.lv.block || 0);
+  return (v.inp.mx || 0) * Math.sign(a.x - v.x) < -.3;
+}
+function block(v, a, m) {
+  v.hp -= Math.min(Math.max(0, v.hp - 1), m.dmg * .15);  // a little chip damage, never the last point
+  set(v, 'block'); v.blockFor = .16 + m.dmg * .012; v.vx = Math.sign(v.x - a.x) * (.15 + m.dmg * .01); v.face = Math.sign(a.x - v.x) || v.face;
+  const [x, y] = at(v, .6, .1); spark(x, y, v.h * .1); pop('BLOCK', v, '#9fd8ff', .8); snd('clonk', v.x, { vol: .6, pitch: 1.3 });
+  S.freeze = Math.max(S.freeze, .035);
+}
+function comboUp(e, v) {  // hits that land while the rival still reels are one combo; each extra hit does a little less
+  const going = ['hit', 'launched'].includes(v.state) && S.t - (e.comboT ?? -9) < 1.2;
+  e.comboN = going ? (e.comboN || 1) + 1 : 1; e.comboT = S.t;
+  if (e.comboN === 3) {
+    snd('combo'); pop('COMBO!', e, '#ff6ad5', 1.3); near(e, S.guests, .35).forEach(g => g.cheer = 1.5); S.heat = Math.min(2, S.heat + .2);
+    const own = lines(e.k); if (own.length && R() < .5 && !S.subs.length) talk(e, pick(own), { to: v });
+  }
+  return Math.max(.5, 1 - .1 * (e.comboN - 1));
+}
+function throwFoe(e) {  // grab right next to the rival: a suplex (it can't be blocked)
+  const f = S.players.find(p => p !== e);
+  if (!f || e.item || f.y > .05 || DOWN.has(f.state) || Math.abs(f.z - e.z) > .05 || Math.abs(f.x - e.x) > .075) return false;
+  e.face = Math.sign(f.x - e.x) || e.face; set(e, 'throw'); e.victim = f; set(f, 'grabbed'); f.grabber = e; f.vx = f.vz = 0;
+  pop('GOTCHA!', e, '#ffe14d', .8); snd('swingHeavy', e.x);
+  return true;
 }
 function strike(e) {
-  const m = e.move, [x, y] = at(e, m.low ? .35 : .62, .18);
-  swoosh(x, y, e.face, e.h * .16);
+  const m = e.move;
+  if (!m.dmg) return;
+  const [x, y] = at(e, m.low ? .3 : m.air ? .45 : .62, .18);
+  swoosh(x, y, e.face, e.h * (m.heavy ? .22 : .16));
   let n = 0;
   for (const v of S.people) {
     if (v === e || v.gone || DOWN.has(v.state)) continue;
     const dx = (v.x - e.x) * e.face;
-    if (dx > -.01 && dx < m.reach && Math.abs(v.z - e.z) < .05 && Math.abs(v.y - e.y) < .45) {
-      hurt(v, m.dmg * (isCpu(e) ? e.lv.dmg : 1), e.face, m.word, m.snd);
+    if (dx > -.012 && dx < m.reach && Math.abs(v.z - e.z) < .06 && Math.abs(v.y - e.y) < .5) {
+      if (blocks(v, e)) block(v, e, m);
+      else hurt(v, m.dmg * (v.role === 'fighter' ? comboUp(e, v) : 1) * (isCpu(e) ? e.lv.dmg : 1), e.face, m.word, m.snd, m);
+      e.hitConfirm = true;
       if (++n === 2) break;
     }
   }
-  if (n) combo(e);
+  if (n) { S.freeze = Math.max(S.freeze, .045 + m.dmg * .007); if (m.lunge) e.vx *= .3; }  // hit-stop: the world holds its breath
   const it = e.item;
   if (n && it && (it.type === 'plate' || (it.type === 'bottle' && ++it.hits >= 2))) breakHeld(e);
-}
-function combo(e) {  // three hits in quick succession
-  S.heat = Math.min(2, S.heat + .2);
-  e.combo = S.t - (e.lastHit ?? -9) < 1.4 ? (e.combo || 0) + 1 : 1; e.lastHit = S.t;
-  if (e.role === 'fighter' && e.combo === 3) {
-    snd('combo'); pop('COMBO!', e, '#ff6ad5', 1.3); near(e, S.guests, .35).forEach(g => g.cheer = 1.5);
-    const own = lines(e.k); if (own.length && R() < .6 && !S.subs.length) talk(e, pick(own), { to: S.players.find(p => p !== e) });
-  }
 }
 function breakHeld(e) {
   const it = e.item; e.item = null; S.items.splice(S.items.indexOf(it), 1);
@@ -358,7 +417,7 @@ function breakHeld(e) {
   if (it.type === 'bottle') puddle(e.x + e.face * .06, e.z + .01, 'booze');
   pop('SMASH!', e, '#bff3ff'); snd('smash', e.x);
 }
-function hurt(v, dmg, dir, word, sound) {
+function hurt(v, dmg, dir, word, sound, m = {}) {
   if (v.role === 'fighter' && S.phase !== 'fight') return;  // a shot still in the air after the K.O. can't decide it again
   v.flash = .12; v.face = -dir; v.vx = dir * (.25 + dmg * .025);
   const [x, y] = at(v, .6); spark(x, y, v.h * .16);
@@ -376,7 +435,12 @@ function hurt(v, dmg, dir, word, sound) {
   if (dmg >= 12 && R() < .4) snd('cheerSoft', v.x);
   if (v.item && R() < .3) { const it = v.item; v.item = null; Object.assign(it, { held: null, x: v.x, z: v.z, y: .5, vy: 1.5, vx: -dir * .2 }); }
   if (!v.hp) return match.wins[1 - S.players.indexOf(v)] >= 1 ? finishThem(v) : ko(v);  // FINISH THEM! only when this K.O. decides the battle
-  if (dmg >= 12 || R() < .12) { set(v, 'down'); snd('thud', v.x); } else set(v, 'hit');
+  if (m.launch) { set(v, 'launched'); v.vy = m.launch; v.vx = dir * .12; v.juggles = 0; }  // up they go: juggle them
+  else if (v.state === 'launched' || v.y > .15) {  // hit in the air: kept up a few times, then down
+    v.juggles = (v.juggles || 0) + 1; v.vx = dir * .1;
+    if (v.juggles > 3) { set(v, 'down'); v.vy = .5; } else { set(v, 'launched'); v.vy = Math.max(v.vy, 1.4); }
+  } else if (m.knock || dmg >= 12) { set(v, 'down'); v.vx = dir * (m.kb || .4); v.vy = .9; }
+  else { set(v, 'hit'); v.stunFor = m.stun || .3; v.vx = dir * (m.kb ?? .2); }
 }
 function grab(e) {
   if (e.item) return throwHeld(e);
@@ -497,6 +561,7 @@ function cpu(p, dt) {
     p.sawShot = ph.shots;
     if (R() < lv.dodge && Math.abs(ph.z - p.z) < .1) n.jump = true;
   }
+  if (p.state === 'attack' && p.hitConfirm && p.chainTried !== p.move) { p.chainTried = p.move; if (R() < lv.combo) n[R() < .6 ? 'punch' : 'kick'] = true; }
   p.think -= dt;
   if (p.think <= 0 || !p.goal || (p.goal.held && p.goal !== foe) || p.goal.gone) {
     p.think = lv.think * (.7 + R() * .6);
@@ -509,7 +574,7 @@ function cpu(p, dt) {
   const g = p.goal, dx = g.x - p.x, dz = g.z - p.z, loot = S.items.includes(g);
   const it = p.item, shoots = it && it.ammo > 0 && (it.type === 'champagne' || it.type === 'raygun');
   const ranged = it && (shoots || it.type === 'shoe' || it.type === 'plate');
-  const want = loot || g.spot ? 0 : ranged ? .22 : .05;
+  const want = loot || g.spot ? 0 : ranged ? .22 : .045;
   n.mx = (Math.abs(dx) > want + .015 ? Math.sign(dx) : Math.abs(dx) < want - .03 ? -Math.sign(dx) * .6 : 0) * lv.speed;
   n.mz = (Math.abs(dz) > .02 ? Math.sign(dz) * .9 : 0) * lv.speed;
   if (p.x < .18 || p.x > .82) n.mx = clamp(n.mx + (p.x < .5 ? .7 : -.7), -1.2, 1.2);  // drift back toward the middle of the floor
@@ -517,7 +582,10 @@ function cpu(p, dt) {
   if (loot && Math.abs(dx) < .04 && Math.abs(dz) < .04) { n.grab = true; p.goal = null; return; }
   if (loot || g.spot || Math.abs(dz) > .04 || p.cd > 0 || R() > dt * lv.rate) { if (R() < dt * .3) n.jump = true; return; }
   if (ranged && Math.abs(dx) < .5) { p.face = Math.sign(dx) || p.face; n[shoots ? 'punch' : 'grab'] = true; }
-  else if (Math.abs(dx) < want + .03) { p.face = Math.sign(dx) || p.face; n[R() < .6 ? 'punch' : 'kick'] = true; }
+  else if (Math.abs(dx) < want + .03) {
+    p.face = Math.sign(dx) || p.face;
+    if (g === foe && Math.abs(dx) < .06 && R() < lv.grab) n.grab = true; else n[R() < .6 ? 'punch' : 'kick'] = true;
+  }
 }
 
 // ---- humans: keys (LAYOUT), or gamepad n once any of its buttons is pressed. Buttons fire on press.
@@ -732,6 +800,7 @@ const hipAt = e => e.rig ? (e.rig.foot - e.rig.J.hip[1]) / (e.rig.foot - e.rig.t
 
 // ---- simulation
 function update(dt) {
+  if (S.freeze > 0) { S.freeze -= dt; ambient(dt * .25); return; }  // hit-stop
   S.t += dt; S.phaseT += dt; S.bannerT -= dt;
   if (S.phase === 'intro' && !S.taunted && S.phaseT > .3) {
     S.taunted = true; const [a, b] = S.players;
@@ -787,8 +856,8 @@ function update(dt) {
     const v = S.people.find(v => v !== s.owner && !v.gone && !DOWN.has(v.state) && Math.abs(v.z - s.z) < .05 && Math.abs(v.x - s.x) < .03 && v.y < s.y);
     if (v) {
       const [dmg, word, sound] = THROWN[s.type];
-      hurt(v, dmg * (isCpu(s.owner) ? s.owner.lv.dmg : 1), Math.sign(s.vx), word, sound);
-      if (v.role === 'fighter') combo(s.owner);
+      const scale = v.role === 'fighter' && s.owner.role === 'fighter' ? comboUp(s.owner, v) : 1;
+      hurt(v, dmg * scale * (isCpu(s.owner) ? s.owner.lv.dmg : 1), Math.sign(s.vx), word, sound, { stun: .36, kb: .2 });
       land(s, true);
     } else if (s.y <= 0) land(s);
     else if (s.x < -.05 || s.x > 1.05) s.dead = true;
@@ -852,15 +921,23 @@ function person_(e, dt) {
       const [x, z, y, f, walking] = e.remote, nx = clamp(x, .04, .96);
       if (!e.y && y > .05) snd('swing', e.x, { pitch: .6 });
       e.vx = clamp(n.mx || 0, -1, 1) * .3; e.vz = clamp(n.mz || 0, -1, 1) * .18; e.x = nx; e.z = clamp(z, 0, 1); e.y = clamp(y, 0, 3); e.vy = 0; e.face = f < 0 ? -1 : 1;
-      e.state = walking ? 'walk' : 'idle';
-      if (n.grab) grab(e); else if (n.punch || n.kick) attack(e, n.kick ? 'kick' : 'punch');
+      e.state = walking ? 'walk' : 'idle'; e.running = walking === 2; if (e.running) e.ranAt = S.t;
+      if (n.grab && !throwFoe(e)) grab(e);
     } else if (free && S.phase === 'fight') {
-      e.vx = (n.mx || 0) * .3; e.vz = (n.mz || 0) * .18;
+      const dirX = Math.sign(n.mx || 0);  // hold a direction to break into a run (a running punch or kick is a dropkick)
+      e.runT = dirX && dirX === e.runDir && Math.abs(n.mx) > .5 ? (e.runT || 0) + dt : 0; e.runDir = dirX; e.running = e.runT > .35;
+      if (e.running) e.ranAt = S.t;
+      e.vx = (n.mx || 0) * .3 * (e.running ? 1.75 : 1); e.vz = (n.mz || 0) * .18;
       if (n.mx) e.face = Math.sign(n.mx);
       e.state = n.mx || n.mz ? 'walk' : 'idle';
       if (n.jump && !e.y) { e.vy = 2.3; snd('swing', e.x, { pitch: .6 }); }
-      if (n.grab) grab(e); else if (n.punch || n.kick) attack(e, n.kick ? 'kick' : 'punch');
+      if (n.grab && !throwFoe(e)) grab(e);
     } else if (free) { e.vx = e.vz = 0; e.state = 'idle'; }
+    if (n.punch || n.kick) e.buf = { kind: n.kick ? 'kick' : 'punch', t: S.t };  // buffered: a press just before you can act still counts
+    if (e.buf && S.phase === 'fight') {
+      if (S.t - e.buf.t > .3) e.buf = null;
+      else if (e.state === 'idle' || e.state === 'walk' || canCancel(e)) { const k = e.buf.kind; e.buf = null; attack(e, k); }
+    }
   } else if (e.role === 'photog') photog(e, dt, free);
   else if (free) {
     if (!e.dest && e.wander && !e.transit && !e.task && !(S.disco > 0) && R() < dt * .4) e.dest = spot();
@@ -872,8 +949,22 @@ function person_(e, dt) {
   }
   switch (e.state) {
     case 'attack': if (!e.done && e.st >= e.move.hit) { e.done = true; strike(e); } if (e.st >= e.move.t) set(e, 'idle'); break;
-    case 'hit': if (e.st > .28) set(e, 'idle'); break;
-    case 'down': if (e.st > (e.role === 'guest' ? .6 : 1.1)) set(e, e.role === 'guest' ? 'cry' : 'getup'); break;
+    case 'hit': if (e.st > (e.stunFor || .28)) set(e, 'idle'); break;
+    case 'block': if (e.st > (e.blockFor || .2)) set(e, 'idle'); break;
+    case 'launched': if (!e.y && e.st > .12) { set(e, 'down'); snd('thud', e.x); S.shake = Math.max(S.shake, H * .01); } break;
+    case 'grabbed': if (!e.grabber || e.grabber.state !== 'throw') { e.grabber = null; set(e, 'idle'); } break;
+    case 'throw': {
+      const v = e.victim;
+      if (!v || v.state !== 'grabbed' || v.grabber !== e) { if (e.st > .2) { e.victim = null; set(e, 'idle'); } break; }
+      if (e.st < .3) { v.x = clamp(e.x + e.face * .03, .04, .96); v.z = e.z; v.y = .1 + e.st; v.face = -e.face; }
+      else {  // over the shoulder: they land behind
+        v.grabber = null; e.victim = null; set(v, 'idle'); v.y = .4;
+        hurt(v, 13 * comboUp(e, v) * (isCpu(e) ? e.lv.dmg : 1), -e.face, 'SUPLEX!', 'kick', { knock: 1, kb: .5 });
+        S.freeze = Math.max(S.freeze, .12); S.shake = Math.max(S.shake, H * .02); set(e, 'idle');
+      }
+      break;
+    }
+    case 'down': if (e.st > (e.role === 'guest' ? .6 : .85)) set(e, e.role === 'guest' ? 'cry' : 'getup'); break;
     case 'cry':
       if (e.st > e.cryFor) set(e, 'getup');
       tears(e, dt);
@@ -940,13 +1031,15 @@ function person_(e, dt) {
   else if (e.state === 'beam' || e.state === 'fall') e.rot += dt * 6;
   else {
     e.rot = ((e.rot + Math.PI) % TAU + TAU) % TAU - Math.PI;  // unwind a spin before settling
-    const target = lying ? -D : e.state === 'faint' ? Math.sin(e.st * 18) * .15 : 0;
+    const target = lying ? -D : e.state === 'faint' ? Math.sin(e.st * 18) * .15 : e.state === 'launched' ? -.9 : e.state === 'grabbed' ? -.5 : 0;
     e.rot += (target - e.rot) * Math.min(1, dt * (e.state === 'slip' ? 24 : e.state === 'getup' ? 7 : e.state === 'faint' ? 5 : 14));
   }
   const wide = e.transit || e.state === 'horse' || e.state === 'rider';
   if (!pinned) { e.x = clamp(e.x + e.vx * dt, wide ? -.25 : .04, wide ? 1.25 : .96); e.z = clamp(e.z + e.vz * dt, 0, 1); }
   if (!free && e.state !== 'horse') { const f = Math.exp(-5 * dt); e.vx *= f; e.vz *= f; }  // knockbacks die down; walking speeds are set fresh each frame
-  if (!pinned && e.state !== 'beam' && e.state !== 'rider' && (e.y > 0 || e.vy > 0)) { e.vy -= 7 * dt; e.y = Math.max(0, e.y + e.vy * dt); if (!e.y) e.vy = 0; }
+  if (!pinned && e.state !== 'beam' && e.state !== 'rider' && e.state !== 'grabbed' && (e.y > 0 || e.vy > 0)) {
+    e.vy -= 7 * dt; e.y = Math.max(0, e.y + e.vy * dt); if (!e.y) { e.vy = 0; e.airDone = false; }
+  }
   if (e.state === 'walk' || e.state === 'horse') e.walkPh += dt * (5 + Math.hypot(e.vx, e.vz) * 30);
   place(e); animate(e, dt);
 }
@@ -958,10 +1051,13 @@ function poseFor(e) {
   switch (e.state) {
     case 'attack': {
       if (e.threw) return POSE.throw();
-      const m = e.move || MOVES.fist, f = m === MOVES.kick ? POSE.kick : m === MOVES.fist || m === MOVES.fork ? POSE.punch : POSE.swing;
-      return f(t, st / m.t, m.hit / m.t);
+      const m = e.move || MOVES.jab;
+      return (POSE[m.pose] || POSE.punch)(t, st / m.t, m.hit / m.t);
     }
     case 'hit': return POSE.hit();
+    case 'block': return POSE.shield();
+    case 'launched': case 'grabbed': return POSE.flail(t);
+    case 'throw': return POSE.grip();
     case 'down': case 'ko': return POSE.lie();
     case 'cry': return POSE.cry(t);
     case 'slip': return st < .6 ? POSE.slip(t) : POSE.lie();
@@ -989,7 +1085,7 @@ function poseFor(e) {
   }
   const walking = e.state === 'walk';
   if (e.aimT > 0) return POSE.aim();
-  if (e.role === 'fighter') return e.y > .02 ? POSE.jump() : walking ? POSE.march(e.walkPh) : POSE.guard(t);
+  if (e.role === 'fighter') return e.y > .02 ? POSE.jump() : walking ? (e.running ? POSE.sprint(e.walkPh) : POSE.march(e.walkPh)) : POSE.guard(t);
   if (e.role === 'photog') return walking ? POSE.camWalk(e.walkPh) : POSE.stand(t);
   if (walking) return e.run ? POSE.run(e.walkPh) : POSE.walk(e.walkPh);
   if (S.disco > 0) return POSE.dance(t);
@@ -1002,7 +1098,7 @@ function animate(e, dt) {
   const tgt = Puppet.solve(e.rig, pose), k = Math.min(1, dt * (e.state === 'attack' ? 30 : DOWN.has(e.state) ? 9 : 15));
   for (const n in tgt) e.ang[n] = (e.ang[n] || 0) + (tgt[n] - (e.ang[n] || 0)) * k;
   e.ang.mouth = tgt.mouth;
-  const upright = !['down', 'cry', 'ko', 'slip', 'faint', 'flip', 'beam', 'fall', 'rider'].includes(e.state) && e.y < .02;
+  const upright = !['down', 'cry', 'ko', 'slip', 'faint', 'flip', 'beam', 'fall', 'rider', 'launched', 'grabbed'].includes(e.state) && e.y < .02;
   e.sink += ((upright ? Puppet.sink(e.rig, e.ang) : 0) - e.sink) * k;  // bent knees lower the body instead of lifting the feet
 }
 
@@ -1032,6 +1128,40 @@ function star(x, y, r, fill) {
   ctx.closePath(); ctx.fill();
 }
 const TEAM = ['#ff4d3a', '#3aa0ff'];
+function bobOf(e) {  // the little bounce of walking, dancing and breathing
+  const h = e.h;
+  const dancing = S.disco > 0 && e.role === 'guest' && (e.state === 'idle' || e.state === 'walk');
+  return e.state === 'walk' || e.state === 'horse' ? Math.abs(Math.sin(e.walkPh)) * h * .02 : dancing ? Math.abs(Math.sin(S.t * 8 + e.seed)) * h * .03
+    : DOWN.has(e.state) ? 0 : (Math.sin(S.t * 2.2 + e.seed) * .5 + .5) * h * .005;
+}
+const glowCv = [0, 1].map(() => [document.createElement('canvas'), document.createElement('canvas')]);
+function drawGlow(e, i) {  // a red / blue halo around each fighter, drawn over everything so it shows through whoever stands in front
+  if (!e.rig || e.gone || !e.img) return;
+  const h = e.h, size = Math.ceil(h * 1.9), [a, b] = glowCv[i], ox = e.X - size / 2, oy = e.Y - h * 1.33;
+  for (const c of [a, b]) if (c.width !== size) c.width = c.height = size;
+  const g = a.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, size, size);
+  g.translate(e.X - ox, e.Y - oy - bobOf(e)); g.scale(e.face, 1); g.rotate(e.rot);
+  Puppet.draw(g, e.rig, e.ang, h, { sink: e.sink });
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = TEAM[i]; g.fillRect(0, 0, size, size); g.globalCompositeOperation = 'source-over';
+  const r = b.getContext('2d');
+  r.setTransform(1, 0, 0, 1, 0, 0); r.clearRect(0, 0, size, size);
+  r.filter = `blur(${Math.max(2, h * .022)}px)`; r.drawImage(a, 0, 0); r.drawImage(a, 0, 0); r.filter = 'none';
+  r.globalCompositeOperation = 'destination-out'; r.drawImage(a, 0, 0); r.globalCompositeOperation = 'source-over';  // only the halo outside the body
+  ctx.drawImage(b, ox, oy);
+}
+function reachMarks() {  // a pulsing arrow over the rival whenever your next blow would land
+  const mine = net ? [mySlot()] : [0, 1].filter(i => ctrl[i] !== 'cpu');
+  for (const i of mine) {
+    const p = S.players[i], f = S.players[1 - i];
+    if (!p || !f || f.gone || DOWN.has(f.state) || S.phase !== 'fight') continue;
+    const dx = Math.abs(f.x - p.x), reach = (p.item && MOVES[p.item.type] ? MOVES[p.item.type].reach : MOVES.jab.reach) + .01;
+    if (dx > reach || Math.abs(f.z - p.z) > .06) continue;
+    const [x, y] = at(f, 1.22), s = f.h * .05 * (1 + .15 * Math.sin(S.t * 14));
+    ctx.fillStyle = TEAM[i]; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, s * .25);
+    ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y - s); ctx.lineTo(x, y + s * .3); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+}
 function drawPerson(e) {
   if (!e.img) return;
   const h = e.h, p = S.players.indexOf(e);
@@ -1042,9 +1172,7 @@ function drawPerson(e) {
     ctx.beginPath(); ctx.ellipse(e.X, feetY(e.z), h * .16, h * .045, 0, 0, TAU); ctx.stroke();
     if (!DOWN.has(e.state)) { const [x, y] = at(e, 1.1); label(net ? (p === mySlot() ? 'YOU' : 'P' + (p + 1)) : `P${p + 1}`, x, y, h * .07, 'center', TEAM[p], 'pixel'); }
   }
-  const dancing = S.disco > 0 && e.role === 'guest' && (e.state === 'idle' || e.state === 'walk');
-  const bob = e.state === 'walk' || e.state === 'horse' ? Math.abs(Math.sin(e.walkPh)) * h * .02 : dancing ? Math.abs(Math.sin(S.t * 8 + e.seed)) * h * .03
-    : DOWN.has(e.state) ? 0 : (Math.sin(S.t * 2.2 + e.seed) * .5 + .5) * h * .005;
+  const bob = bobOf(e);
   ctx.save(); ctx.translate(e.X, e.Y - bob); ctx.scale(e.face, 1); ctx.rotate(e.rot);
   if (e.flash > 0) ctx.filter = 'brightness(2.6)';
   if (e.rig) Puppet.draw(ctx, e.rig, e.ang, h, { sink: e.sink, hand: e.item || e.prop ? () => holding(e) : null });
@@ -1230,6 +1358,7 @@ function hud() {
     ctx.fillStyle = f > .5 ? '#ffd23f' : f > .25 ? '#ff9d1a' : '#ff3b2f'; ctx.fillRect(i ? x + bw - fw : x, y, fw, bh);
     ctx.lineWidth = Math.max(2, H * .004); ctx.strokeStyle = '#fff'; ctx.strokeRect(x, y, bw, bh);
     label(p.name.toUpperCase(), i ? x + bw : x, y + bh + H * .048, H * .038, i ? 'right' : 'left');
+    if (p.comboN >= 2 && S.t - p.comboT < 1.3) label(`${p.comboN} HITS`, i ? x + bw : x, y + bh + H * .135, H * .05 * (1 + .1 * Math.max(0, 1 - (S.t - p.comboT) * 6)), i ? 'right' : 'left', '#ff6ad5');
     const who = net ? (i === mySlot() ? 'YOU' : 'ONLINE') : ctrl[i] === 'cpu' ? (mode === 'cpu' ? `CPU · LV${S.level} ${LEVELS[S.level - 1].name}` : 'CPU') : ctrl[i] === 'pad' ? 'PAD' : 'KEYS';
     label(who, i ? x + bw : x, y - H * .012, H * .018, i ? 'right' : 'left', '#ffe066', 'pixel');
     for (let w = 0; w < 2; w++) {  // round wins, best of 3
@@ -1258,6 +1387,8 @@ function draw() {
   if (S.ufo) drawBeam(S.ufo);
   const order = [...SPOTS.map(o => [o.z - .004, 3, o]), ...S.people.filter(o => !o.gone && o.state !== 'loo').map(o => [o.z, 0, o]), ...S.items.filter(i => !i.held).map(o => [o.z - .001, 1, o]), ...S.shots.map(o => [o.z + .002, 2, o])];
   for (const [, k, o] of order.sort((a, b) => a[0] - b[0])) (k === 0 ? drawPerson : k === 1 ? drawLoose : k === 2 ? drawShot : drawSpot)(o);
+  S.players.forEach(drawGlow);
+  reachMarks();
   if (S.disco > 0) drawDisco();
   S.doves.forEach(drawDove);
   if (S.ufo) drawUfo(S.ufo);
@@ -1285,7 +1416,7 @@ function freshState(extra) {
   return Object.assign({ t: 0, phase: 'intro', phaseT: 0, round: S ? S.round + 1 : 1, level: 1, clock: ROUND_SECONDS, banner: '', sub: '', bannerT: 0,
     shake: 0, slowT: 0, players: [], guests: [], photog: null, people: [], cast: [], items: [], shots: [], puddles: [], fx: [], doves: [], winner: null,
     white: [0, 0], confetti: 0, pukeIn: 3, gaspIn: 1, faintIn: 6, flipIn: 5, dovesIn: 3, discoIn: 16, disco: 0, ufoIn: 6, ufo: null, ufos: 0,
-    enterIn: 2, heat: 0, subs: [], comic: null }, extra);
+    enterIn: 2, heat: 0, subs: [], comic: null, freeze: 0 }, extra);
 }
 async function newMatch(pair, level = 1, round = 0) {
   const run = startSeq, L = window.LAYERS, n = L.cards.length;
@@ -1332,7 +1463,7 @@ function rival() {  // the next rung of the ladder: an android nobody has beaten
 // ---- online. The host packs everything the guest draws into its match-room presence (~30 times a second, < 4 KB); the
 // guest unpacks it, eases toward it, replays the sounds and effects, and moves its own fighter itself while it's free.
 const STATES = ['idle', 'walk', 'attack', 'hit', 'down', 'cry', 'getup', 'slip', 'ko', 'faint', 'flip', 'beam', 'fall', 'puke', 'win', 'dazed',
-                'drink', 'horse', 'rider', 'pee', 'smile', 'shield', 'aim', 'shoot', 'eat', 'dance', 'sit', 'gift', 'booth', 'watch', 'loo'];
+                'drink', 'horse', 'rider', 'pee', 'smile', 'shield', 'aim', 'shoot', 'eat', 'dance', 'sit', 'gift', 'booth', 'watch', 'loo', 'block', 'launched', 'grabbed', 'throw'];
 const THINGS = ['fork', 'bottle', 'champagne', 'shoe', 'plate', 'raygun', 'cork', 'laser', 'gift'], MOVE_KEYS = Object.keys(MOVES);
 const ROLES = ['fighter', 'guest', 'photog'], WET = ['booze', 'puke', 'pee'], PHASES = ['intro', 'fight', 'ko', 'finish', 'comic'], UFO = ['in', 'beam', 'out'];
 const bytes = s => new TextEncoder().encode(s).length;
@@ -1341,7 +1472,7 @@ function pack() {
   while (evs.length && now - evs[0][1] > 700) evs.shift();
   const d = {
     v: 1, sg: S.stage, ph: PHASES.indexOf(S.phase), pt: q2(S.phaseT), cl: q2(S.clock), rd: S.round, w: match.wins, bn: S.banner, bt: q2(S.bannerT), sb: S.sub,
-    dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
+    cb: S.players.map(p => p.comboN >= 2 && S.t - p.comboT < 1.3 ? p.comboN : 0), dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
     P: S.people.filter(e => !e.gone).map(e => [e.id, e.k === 'photog' ? -1 : e.k, ROLES.indexOf(e.role), q3(e.x), q3(e.z), q2(e.y), e.face,
       STATES.indexOf(e.state), q2(e.st), Math.round(e.hp), q2(e.rot), e.item ? THINGS.indexOf(e.item.type) : e.prop ? 20 + THINGS.indexOf(e.prop) : -1,
       e.item ? e.item.ammo : 0, MOVE_KEYS.findIndex(k => MOVES[k] === e.move),
@@ -1367,6 +1498,7 @@ function unpack(d) {
   S.phase = PHASES[d.ph] || 'fight'; S.phaseT = +d.pt || 0; S.clock = +d.cl || 0; S.round = d.rd; match.wins = Array.isArray(d.w) ? d.w : [0, 0];
   S.banner = String(d.bn || ''); S.bannerT = +d.bt || 0; S.sub = String(d.sb || ''); S.disco = +d.dc || 0; S.white[1] = Math.max(S.white[1], +d.wh || 0);
   if (d.cf && !S.confetti) S.confetti = 5;
+  if (Array.isArray(d.cb)) S.players.forEach((p, i) => { const c = +d.cb[i] || 0; if (c >= 2) { p.comboN = c; p.comboT = S.t; } });
   if (was !== S.phase && S.phase === 'intro') S.fx = [];
   const seen = new Set(), fighters = [];
   for (const a of d.P.slice(0, 40)) {
@@ -1446,7 +1578,8 @@ function replica(dt) {  // the online guest's frame: no game logic, just easing 
     e.st += dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt; e.talk -= dt;
     if (e.say && (e.say.t -= dt) <= 0) e.say = null;
     if (e === me && e.hostFree && S.phase === 'fight') {
-      e.vx = b.mx * .3; e.vz = b.mz * .18;
+      const dirX = Math.sign(b.mx); e.runT = dirX && dirX === e.runDir && Math.abs(b.mx) > .5 ? (e.runT || 0) + dt : 0; e.runDir = dirX; e.running = e.runT > .35;
+      e.vx = b.mx * .3 * (e.running ? 1.75 : 1); e.vz = b.mz * .18;
       if (b.mx) e.face = Math.sign(b.mx);
       e.state = b.mx || b.mz ? 'walk' : 'idle';
       if (b.jump && !S.jumpHeld && !e.y) e.vy = 2.3;
@@ -1468,7 +1601,7 @@ function replica(dt) {  // the online guest's frame: no game logic, just easing 
   if (performance.now() - sentAt > 30 && me) {
     sentAt = performance.now();
     net.link.send({ n: ++inSeq, in: { mx: b.mx, mz: b.mz, p: ['punch', 'kick', 'grab', 'jump'].map(x => S.presses[x]) },
-                    me: [q3(me.x), q3(me.z), q2(me.y), me.face, me.state === 'walk' ? 1 : 0] });
+                    me: [q3(me.x), q3(me.z), q2(me.y), me.face, me.state === 'walk' ? (me.running ? 2 : 1) : 0] });
   }
   if (!S.people.length) S.waiting = 'CONNECTING…';
   else S.waiting = '';

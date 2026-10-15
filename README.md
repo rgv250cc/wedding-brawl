@@ -99,6 +99,14 @@ CUDA machine (`ssh rtx` in build.sh) and copies `layers.js`, `fighters.js` and `
 cuts out every guest, paints the empty background, upscales the portraits, gives half-hidden guests a full body and finds
 everyone's joints. `python3 make_layers.py --help` lists the options.
 
+The generated bodies come from `make_bodies.py` (build.sh copies it along): full-coverage sci-fi armour, a different
+colour scheme for every guest, under their real face. Its `PICKS` table holds the scheme and seed chosen by eye for each
+guest of a photo, so a rebuild of that photo gives the same bodies; another photo gets schemes from the guests' own
+outfits and the best seed that passes the checks (no bare skin, not flat, the scheme's colours, joints the puppets can
+use). To re-roll bodies without a full rebuild: `python make_bodies.py photo.jpg --ks 10,14 --seeds 8 --cands out/cands`
+on the GPU box, look at the candidates, put the chosen seeds in `PICKS`, then `python make_bodies.py photo.jpg --apply
+out/fighters.js` and rerun `make_rigs.py`.
+
 The photographer: `python make_photographer.py his_photo.jpg` on the GPU box cuts him out with whatever he holds and
 writes `photog.js`; then rerun `make_rigs.py fighters.js photog.js`.
 

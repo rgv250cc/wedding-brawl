@@ -137,6 +137,13 @@ const S = {  // synthesised fallbacks and the sounds no free recording covered
   special: (b, t, p) => { for (const [d, f] of [[0, 520], [.08, 660], [.16, 780], [.24, 1040]]) osc(b, 'square', f * p, f * p, t + d, .1, .18); hiss(b, 'highpass', 4000, 9000, t, .5, .15); },
   matrix: (b, t, p) => { for (let i = 0; i < 10; i++) osc(b, 'sine', (900 + 300 * (i % 3)) * p, 300 * p, t + i * .07, .06, .12); },
   creak: (b, t, p) => { for (let i = 0; i < 9; i++) osc(b, 'sawtooth', (120 + i * 35) * p, (130 + i * 35) * p, t + i * .1, .09, .14, .01); },  // metal bending, rising
+  quack: (b, t, p) => { for (const d of [0, .18]) { osc(b, 'sawtooth', 620 * p, 380 * p, t + d, .12, .3); hiss(b, 'bandpass', 1400, 900, t + d, .1, .2, 4); } },
+  moo: (b, t, p) => { osc(b, 'sawtooth', 140 * p, 110 * p, t, .9, .35, .08); hiss(b, 'lowpass', 600, 300, t, .8, .1); },
+  baa: (b, t, p) => { const o = osc(b, 'sawtooth', 420 * p, 380 * p, t, .6, .28, .03); wobble(o, t, .6, 9, 25); },
+  ribbit: (b, t, p) => { for (const d of [0, .14]) osc(b, 'square', 260 * p, 180 * p, t + d, .09, .25); },
+  buzz: (b, t, p) => { const o = osc(b, 'sawtooth', 220 * p, 240 * p, t, .7, .18, .02); wobble(o, t, .7, 30, 15); },
+  honk: (b, t, p) => { osc(b, 'square', 330 * p, 300 * p, t, .25, .3); osc(b, 'square', 440 * p, 400 * p, t, .25, .15); },
+  squeak: (b, t, p) => osc(b, 'sine', 1800 * p, 2600 * p, t, .12, .35),
   escalator: (b, t, p) => { osc(b, 'sawtooth', 70 * p, 74 * p, t, 2.4, .12, .2); hiss(b, 'lowpass', 300, 300, t, 2.4, .08); },
 };
 

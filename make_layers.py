@@ -2,11 +2,13 @@
 Runs on a CUDA box (build.sh does the copying):
     python make_layers.py photo.jpg [--scene "what the empty place looks like"] [--plate 0-3]
                           [--name "x,y=Name|Title" ...] [--bodies cyborg|shadow|none]
-Writes out/layers.js and out/fighters.js for index.html."""
+Writes out/layers.js and out/fighters.js for index.html. The generated (cyborg) bodies come from make_bodies.py,
+which has to sit next to this file."""
 import os, io, json, base64, argparse, urllib.request
 import numpy as np, cv2, torch
 from PIL import Image
 from scipy import ndimage
+import make_bodies
 
 ap = argparse.ArgumentParser()
 ap.add_argument("photo")
@@ -148,32 +150,9 @@ f = fg.astype(np.float32)  # hedge depth: masked blur so it doesn't pick up the 
 fgd = cv2.GaussianBlur(disp * f, (0, 0), 4) / np.maximum(cv2.GaussianBlur(f, (0, 0), 4), 1e-3)
 fgd = np.where(f > 0, fgd, bgd)
 
-# --- bodies for guests hidden from the chest down: complete their skeleton, draw a mannequin in that pose,
-#     let SDXL paint it (cyborg) or just shade it (shadow), always under their real face
-def skeleton(m, width):  # joints YOLO-pose sees on this cut-out, the hidden ones filled in as a relaxed standing pose
-    best, n = None, 1
-    for kp in kps:
-        ok = kp[:, 2] > 0.4
-        hits = m[kp[ok, 1].astype(int).clip(0, H - 1), kp[ok, 0].astype(int).clip(0, W - 1)].sum()
-        if hits > n: best, n = kp, hits
-    if best is None or min(best[5, 2], best[6, 2]) < 0.4: return None  # need both shoulders to size a body
-    P = {i: best[i, :2] for i in range(17) if best[i, 2] > 0.4}
-    ls, rs = P[5], P[6]
-    sw = max(np.linalg.norm(ls - rs), 0.5 * width)  # turned sideways -> shoulders look narrow; the cut-out width keeps it sane
-    across = (ls - rs) / max(np.linalg.norm(ls - rs), 1e-6)
-    down = np.array([-across[1], across[0]]); down = down if down[1] > 0 else -down
-    unit = lambda v: v / max(np.linalg.norm(v), 1e-6)
-    J = dict(ls=ls, rs=rs)
-    hip = (ls + rs) / 2 + down * 1.55 * sw
-    J["lh"], J["rh"] = P.get(11, hip + across * .4 * sw), P.get(12, hip - across * .4 * sw)
-    J["lk"], J["rk"] = P.get(13, J["lh"] + down * 1.2 * sw), P.get(14, J["rh"] + down * 1.2 * sw)
-    J["la"], J["ra"] = P.get(15, J["lk"] + down * 1.2 * sw), P.get(16, J["rk"] + down * 1.2 * sw)
-    J["le"], J["re"] = P.get(7, ls + down * .9 * sw + across * .15 * sw), P.get(8, rs + down * .9 * sw - across * .15 * sw)
-    J["lw"], J["rw"] = P.get(9, J["le"] + unit(J["le"] - ls) * .8 * sw), P.get(10, J["re"] + unit(J["re"] - rs) * .8 * sw)
-    head = 0 in P and m[int(np.clip(P[0][1], 0, H - 1)), int(np.clip(P[0][0], 0, W - 1))]  # their face is on this cut-out
-    return J, sw, 11 not in P and 12 not in P, head
-
-def body(hi, box, J, sw, seed):
+# --- bodies for guests hidden from the chest down: complete their skeleton (make_bodies.skeleton), then either
+#     make_bodies paints full-coverage armour under their real face (cyborg) or a dark silhouette stands in (shadow)
+def shadow_body(hi, box, J, sw):  # dark silhouette fading toward the feet under the real face, no AI needed
     x0, y0, x1, y1 = box
     Wc, Hc = 832, 1216
     s = .9 * Hc / (max(J["la"][1], J["ra"][1]) + .25 * sw - y0)  # source px -> canvas px, whole figure fits
@@ -191,41 +170,8 @@ def body(hi, box, J, sw, seed):
     layer.paste(hi.resize((max(1, round((x1 - x0) * s)), max(1, round((y1 - y0) * s))), Image.LANCZOS), pt((x0, y0)))
     real = np.asarray(layer).astype(np.float32) / 255; va = real[..., 3:]
     shape = shape.astype(np.float32) / 255
-    shadow = lambda: (np.full((Hc, Wc, 3), (.1, .1, .16), np.float32),  # dark silhouette fading toward the feet, no AI needed
-                      np.maximum(cv2.GaussianBlur(shape, (0, 0), max(2, .08 * sw * s)) * np.linspace(1, .35, Hc)[:, None], va[..., 0]))
-    if args.bodies == "shadow":
-        gen, alpha = shadow()
-    else:
-        init = np.full((Hc, Wc, 3), .8, np.float32); init[shape > .5] = (.35, .37, .42)  # grey mannequin steers the pose
-        init = real[..., :3] * va + init * (1 - va)
-        keep = cv2.erode((va[..., 0] > .8).astype(np.uint8), np.ones((5, 5), np.uint8))
-        # real guests' faces: keep it a bulky, fully covering suit (an unguarded "cyborg body" prompt drifts to skimpy outfits)
-        painted = (shape > .5) & (va[..., 0] < .1)
-        tries = []
-        for attempt in range(4):  # reroll a body that shows skin or came out as a flat blob
-            out = inpainter()(prompt="full-length photo of a person wearing a bulky full-body robotic mech armor suit that covers everything from the neck "
-                                     "down to the feet, thick steel and chrome plates, glowing blue joints, standing, plain light grey studio background",
-                              negative_prompt="skin, bare skin, bare legs, bare arms, cleavage, bikini, swimsuit, lingerie, leotard, corset, nude, sexy, "
-                                              "revealing, extra head, two heads, extra arms, extra legs, deformed, cropped, text, watermark, scenery, other people",
-                              image=Image.fromarray((init * 255).astype(np.uint8)), mask_image=Image.fromarray((1 - keep) * 255),
-                              width=Wc, height=Hc, strength=.85, guidance_scale=7, num_inference_steps=30,
-                              generator=torch.Generator("cuda").manual_seed(seed + 1000 * attempt)).images[0]
-            ycc = cv2.cvtColor(np.asarray(out), cv2.COLOR_RGB2YCrCb)[painted]
-            skin = np.mean((ycc[:, 1] > 135) & (ycc[:, 1] < 180) & (ycc[:, 2] > 85) & (ycc[:, 2] < 135))
-            flat = ycc[:, 0].std() < 18
-            tries.append((skin + flat, out))
-            if skin < .03 and not flat: break
-        score, out = min(tries, key=lambda t: t[0])
-        print(f"guest {seed}: {len(tries)} tries, {'ok' if score < .03 else 'still off -> shadow body'}")
-        if score >= .03:
-            gen, alpha = shadow()
-        else:
-            gen = np.asarray(out).astype(np.float32) / 255
-            region = cv2.dilate(np.maximum(shape, va[..., 0]), np.ones((th(.5), th(.5)), np.uint8)) > .5
-            ys_, xs_ = np.nonzero(region)
-            r = sam().predict(out, bboxes=[[xs_.min(), ys_.min(), xs_.max(), ys_.max()]], verbose=False)[0].masks
-            fig = (r.data[0].cpu().numpy() > .5) & region if r is not None else region
-            alpha = np.maximum(cv2.GaussianBlur(fig.astype(np.float32), (0, 0), 1), va[..., 0])
+    gen = np.full((Hc, Wc, 3), (.1, .1, .16), np.float32)
+    alpha = np.maximum(cv2.GaussianBlur(shape, (0, 0), max(2, .08 * sw * s)) * np.linspace(1, .35, Hc)[:, None], va[..., 0])
     rgb_ = real[..., :3] * va + gen * (1 - va)
     ys_, xs_ = np.nonzero(alpha > .1)  # low threshold: a fading shadow body still counts down to its feet
     fig = Image.fromarray((np.dstack([rgb_, alpha]) * 255).astype(np.uint8)).crop((xs_.min(), ys_.min(), xs_.max() + 1, ys_.max() + 1))
@@ -254,15 +200,24 @@ for i in range(len(ms)):
     x0, y0, x1, y1 = max(xs.min() - PAD, 0), max(ys.min() - PAD, 0), min(xs.max() + PAD + 1, W), min(ys.max() + PAD + 1, H)
     cut = rgba(m)[y0:y1, x0:x1]
     big = upscale(cut[..., :3], cut[..., 3].astype(np.float32) / 255)
-    sk = skeleton(m, xs.max() - xs.min()) if args.bodies != "none" else None
+    sk = make_bodies.skeleton(kps, m, xs.max() - xs.min()) if args.bodies != "none" else None
     cy = sk is not None and sk[2] and ys.max() < (sk[0]["ls"][1] + sk[0]["rs"][1]) / 2 + 2.2 * sk[1]  # hips hidden, little below the chest
     # whole enough to stand on the brawl floor: a generated body, or real hips with some thigh below them
     full = cy or (sk is not None and sk[3] and not sk[2] and ys.max() > max(sk[0]["lh"][1], sk[0]["rh"][1]) + .8 * sk[1])
     cards.append(dict(x=int(x0), y=int(y0), w=int(x1 - x0), h=int(y1 - y0), d=round(float(norm(np.median(disp[m]))), 4),
                       img=uri(cut, "WEBP", quality=88, alpha_quality=100, method=6, exact=True),
-                      big=body(big, (x0, y0, x1, y1), *sk[:2], seed=i) if cy else big,
+                      big=big, _body=((cut, (x0, y0, x1, y1), sk) if cy else None),
                       **({"cy": 1} if cy else {}), **({"full": 1} if full else {})))
 cards.sort(key=lambda c: c["d"])  # far -> near = paint order
+# generated bodies, in paint order: make_bodies.PICKS (the schemes and seeds chosen by eye) is keyed by this index
+painter = make_bodies.Bodies(rgb, kps, inpainter, sam, stem) if args.bodies == "cyborg" else None
+for k, c in enumerate(cards):
+    b = c.pop("_body")
+    if b is None: continue
+    cut, box, sk = b
+    fig = painter.make(k, cut, box, c["big"]) if painter else None
+    if painter and fig is None: print(f"guest {k}: no body passed the checks -> shadow body")
+    c["big"] = fig if fig is not None else shadow_body(c["big"], box, *sk[:2])
 # big portraits for the fighter intro, as data: URIs in their own script (artifact viewers refuse plain image files)
 fighters = [uri(np.asarray(c.pop("big")), "WEBP", quality=82, alpha_quality=90, method=6) for c in cards]
 open("out/fighters.js", "w").write("window.FIGHTERS = " + json.dumps(fighters) + ";\n")

@@ -70,6 +70,23 @@ const REPLY = ['Big words for a plus-one!', 'Talk is cheap. The bar is free!', '
 const BEG = ['Please! I have a plus-one!', 'Not in front of the photographer!', 'Wait! You can have my cake!', 'I take it back! ALL of it!',
   'Mercy! I still have to dance!', 'Please don\'t! I brought a gift!', 'I\'ll say you won! Promise!', 'Not the face! Not the face!',
   'I only came for the open bar!', 'Please don\'t hurt me! I\'m on the guest list!'];
+// Moshik, when the match is over: one gripe from the bag, then a cry for whiskey
+const GRIPES = ['My favourite part of a wedding... is the end.', 'Fourteen hours on my feet. The cake lasted four minutes.',
+  'Nobody looks at the camera. NOBODY.', 'Two thousand photos, and they will pick the blurry one.', 'I asked for golden hour. I got a golden retriever.',
+  'The DJ played the same song nine times. I counted.', 'My back has filed for divorce.', 'They want candids. Then they ask why they look candid.',
+  'Every aunt here is a photographer now. With a phone. In my shot.', 'I ate one canape. ONE. They called it dinner.',
+  'Next wedding I charge per tantrum.', 'Somebody sat on my lens cap. I know who you are.', 'In my day the brawl started AFTER the speeches.',
+  'I came to shoot a wedding, not a war.', 'Group photo took forty minutes. Then the uncle went to the toilet.',
+  'This is why I do landscapes now. Mountains don\'t punch.', 'Love is beautiful. The lighting is not.', 'The bride said "just natural". Natural took six hours.',
+  'A hundred weddings. This one wins. Unfortunately.', 'My face hurts from watching you all smile.', 'Someone asked me if I do bar mitzvahs. Not anymore.',
+  'My memory card is full. So is my patience.', 'Who puts a dance floor on GRASS?', 'I\'m not crying. It\'s the smoke machine. There is no smoke machine.',
+  'Every year I say last wedding. Every year I lie.', 'They paid for the gold package. They got the full disaster.',
+  'Somebody did bunny ears in every single photo. I will find you.', 'The flowers have better posture than the groomsmen.',
+  'I have photographed sharks with better table manners.', 'Ten years of art school for THIS.'];
+const WHISKEY = ['Somebody get me a WHISKEY!', 'WHISKEY! Neat! NOW!', 'Is there a bartender in this building?! WHISKEY!',
+  'I\'ll trade the whole album for one whiskey!', 'Bartender! The brown stuff! Lots of it!', 'Whiskey. Double. Make it a triple.',
+  'No whiskey, no photos. I\'m deleting everything!', 'You, in the suit! Whiskey! Chop chop!', 'Whiskey me. Whiskey me NOW.',
+  'Who do I have to flash to get a whiskey around here?'];
 const GLOAT = ['And THAT is how we do weddings!', 'Somebody cue my victory song!', 'Next!', 'Who wants cake?', 'Best. Wedding. Ever.'];
 const lines = k => (window.NICKNAMES && window.NICKNAMES[k] && window.NICKNAMES[k].lines) || [];
 const SHAPES = {  // item art in item units (~80 tall), grip at 0,0, pointing up; drawn with a white paper rim like the cut-outs
@@ -191,11 +208,15 @@ const POSE = {
   dazed: t => ({ torso: .1 * Math.sin(t * 4), head: .2 * Math.sin(t * 3), fUA: [D - .6], fFA: [-2.2], bUA: [D - .5], bFA: [-2],
     ...legs(D - .2 + .1 * Math.sin(t * 4), D + .2) }),
   camWalk: t => ({ ...stride(t, .4, .6), torso: .03 * Math.sin(t * 2) }),  // the photographer's arms never move: the camera stays in one piece
+  camSit: () => ({ torso: -.06, head: .1, ...legs(.05, .15, D, D + .1) }),  // sitting, camera arms untouched
+  drag: t => ({ ...stride(t, .35, .5), torso: .25, head: -.1, bUA: [D + 1.1], bFA: [D + .9], fUA: [D - .25], fFA: [D - .1] }),  // pulling a chair along behind
+  smoke: k => ({ torso: -.06 + .04 * k, head: .1 - .2 * k, ...legs(.05, .15, D, D + .1), bUA: [D - .25], bFA: [.35],
+    fUA: [D - .3 - (D - .3 + .3) * k], fFA: [.3 + (-2.7 - .3) * k] }),  // the front hand goes from the knee to the lips and back
   camAim: () => ({ torso: .08, head: .15, ...legs(D - .3, D + .35, D + .05, D + .45) }),
   camShoot: () => ({ torso: -.1, head: -.12, ...legs(D - .3, D + .35, D + .05, D + .45) }),
 };
 
-let root, cv, ctx, W = 1, H = 1, S = null, raf = 0, lastT = 0, bg = null, mode = 'demo', net = null, opts0 = {}, pool = null, photogImg = null;
+let root, cv, ctx, W = 1, H = 1, S = null, raf = 0, lastT = 0, bg = null, mode = 'demo', net = null, opts0 = {}, pool = null, photogImg = null, photogNoCam = null;
 let nextId = 1, sentAt = 0, inSeq = 0, startSeq = 0;
 const keys = new Set(), tapped = new Set();  // keys held, and keys pressed since the last frame (a tap shorter than a frame still counts)
 const ctrl = ['cpu', 'cpu'];  // who drives P1 / P2: 'cpu' | 'keys' | 'pad' | 'net' (the online guest)
@@ -254,7 +275,8 @@ function rigFor(k, img) {  // the jointed puppet for a portrait, built once (nul
   if (!rigs.has(key)) {
     let r = null;
     try {
-      r = Puppet.rig(img, k === 'photog' ? window.PHOTOG_RIG : window.RIGS[k], { skirt: k !== 'photog' && !window.LAYERS.cards[k].cy });
+      r = Puppet.rig(img, k === 'photog' ? window.PHOTOG_RIG : k === 'photog-nocam' ? window.PHOTOG_NOCAM_RIG : window.RIGS[k],
+                     { skirt: k !== 'photog' && k !== 'photog-nocam' && !window.LAYERS.cards[k].cy });
       if (k === 'photog') r.lens = lensOf(img, r);
     } catch (err) { console.warn('flat cut-out for', k, err); }
     rigs.set(key, r);
@@ -398,7 +420,7 @@ function attack(e, kind) {  // punch or kick: starts a chain, continues one afte
   e.chainN = chained ? (e.chainN || 1) + 1 : 1;
   if (it && e.chainN > 3) return;
   faceFoe(e);
-  if (e.curse === 'cake' && R() < .5) { e.face = -e.face; pop('?!', e, '#fff6e6', .7); }  // cream in the eyes: half the swings go the wrong way
+  if ((e.curse === 'cake' || e.curse === 'face') && R() < .5) { e.face = -e.face; pop('?!', e, '#fff6e6', .7); }  // cream in the eyes: half the swings go the wrong way
   e.move = MOVES[key]; set(e, 'attack'); e.hitConfirm = false; e.swingN = (e.swingN || 0) + 1;
   e.vx = e.move.lunge ? e.face * e.move.lunge : e.vx + e.face * (e.move.heavy ? .14 : .1);  // every blow steps in
   snd(e.move.heavy ? 'swingHeavy' : 'swing', e.x, { pitch: e.move.heavy ? .9 : 1.15 });
@@ -474,7 +496,7 @@ function strike(e) {
   swoosh(x, y, e.face, e.h * (m.heavy ? .22 : .16));
   let n = 0;
   for (const v of S.people) {
-    if (v === e || v.gone || DOWN.has(v.state) || (v.curse === 'escalator' && v.state === 'cursed') || S.t - (v.curseAt ?? -9) < .6) continue;  // a curse's first moment can't be hit
+    if (v === e || v.gone || DOWN.has(v.state) || (curseG(v) === 'R' && v.state === 'cursed') || S.t - (v.curseAt ?? -9) < .6) continue;  // a curse's first moment can't be hit
     const reach = m.reach * (e.curse === 'tiny' ? .6 : 1), dx = (v.x - e.x) * e.face;  // lows miss a jump, and only an uppercut swats one out of the air
     const high = m.air ? Math.abs(v.y - e.y) < .5 : v.y - e.y < (m.low ? .08 : m.key === 'upper' ? .9 : .32);
     if ((dx > -.012 || (m.around && dx > -reach)) && dx < reach && Math.abs(v.z - e.z) < (m.wide ? .18 : .06) && high) {  // round and spin kicks sweep wide in depth
@@ -517,11 +539,12 @@ function hurt(v, dmg, dir, word, sound, m = {}, by = null) {
     return;
   }
   let still = false;  // walk-around curses: half damage, the 2nd hit breaks them; stuck ones break on the 1st (ice shatters for 1.5x)
-  if (v.curse && CURSE[v.curse].g === 'T') {
+  if (v.curse && curseG(v) === 'R' && v.state === 'cursed') return;  // on a ride nobody can interrupt
+  if (v.curse && curseG(v) === 'T') {
     dmg *= .5; still = v.state === 'cursed';
     if (v.curse === 'spoon') { v.bendAt = S.t; snd('boing', v.x); }  // Moses bends the spoon; it springs back
     if (++v.curseHits >= 2) { uncurse(v, true); still = false; }
-  } else if (v.curse && CURSE[v.curse].g === 'L') {
+  } else if (v.curse && curseG(v) === 'L') {
     if (v.curse === 'ice') { dmg *= 1.5; const [x, y] = at(v, .6); spray(x, y, 18, '#dff6ff', dir * H * .3, H * .3, v.h * .014, .7); }
     uncurse(v, true);
   }
@@ -555,7 +578,13 @@ const CURSE = {  // seconds. g = T: walk about but can't act (half damage, the 2
   smooch: { t: 2, g: 'L', word: 'MWAH!', color: '#ff4d6d', snd: 'smooch' }, ice: { t: 2, g: 'L', word: 'BRRR!', color: '#bfeaff', snd: 'freeze' },
   tiny: { t: 4, g: 'W', word: 'SQUEAK!', color: '#c9f0ff', snd: 'shrink' }, dizzy: { t: 3.5, g: 'W', word: 'WHICH WAY?!', color: '#ffe14d', snd: 'daze' },
   cake: { t: 3, g: 'W', word: 'SPLAT!', color: '#fff6e6', snd: 'splat' }, escalator: { t: 3.2, g: 'R', word: 'GOING DOWN!', color: '#d9e3ea', snd: 'escalator' },
+  // the generic ones: each guest's own special picks one of these plus a photo (nicknames.js sp: type, prop, motion/size/spot/n/path, dur, word, snd, color)
+  transform: { t: 3, g: 'T', word: 'POOF!', color: '#ffe14d', snd: 'pop' }, drop: { t: 2, g: 'L', word: 'SPLAT!', color: '#ffd23f', snd: 'crash' },
+  encase: { t: 2, g: 'L', word: 'GOTCHA!', color: '#bfeaff', snd: 'clonk' }, face: { t: 3, g: 'W', word: 'SPLAT!', color: '#fff6e6', snd: 'splat' },
+  swarm: { t: 2, g: 'L', word: 'BZZZ!', color: '#ffe14d', snd: 'flap' }, carry: { t: 2.6, g: 'R', word: 'WHOOSH!', color: '#9fd8ff', snd: 'whistle' },
 };
+const curseG = v => v.curseG || (CURSE[v.curse] || {}).g;  // the curse's group for this victim (a "stuck" transform is L, not T)
+const spProp = e => e.curseSp && e.curseSp.prop;
 const CURSES = Object.keys(CURSE);
 const spOf = k => (window.NICKNAMES && window.NICKNAMES[k] && window.NICKNAMES[k].sp) || { type: CURSES[(k | 0) % 10], name: 'SPECIAL MOVE', shout: 'Take THIS!' };
 const GLYPHS = [0x13000, 0x13008, 0x1300A, 0x13010, 0x13020, 0x1302F, 0x13041, 0x13050, 0x13062, 0x1307D, 0x13080, 0x13087, 0x1308F, 0x1309D, 0x130A7,
@@ -622,16 +651,19 @@ function castHit(e) {  // the bolt arrives where the rival stood: jumping, rolli
   curseOn(f, e.cast, e, blocked);
 }
 function curseOn(v, type, by, halved) {
-  const c = CURSE[type] || CURSE.pig;
+  const own = spOf(by.k), sp = own.type === type ? own : {}, c = Object.assign({}, CURSE[type] || CURSE.pig);
+  for (const k of ['word', 'snd', 'color']) if (sp[k]) c[k] = sp[k];
   if (v.curse) uncurse(v);
   if (v.item) { const it = v.item; v.item = null; Object.assign(it, { held: null, x: v.x, z: v.z, y: .5, vy: 1.2, vx: 0 }); }
-  v.curse = type; v.curseT = c.t * (halved ? .5 : 1); v.curseBy = by; v.buf = null; v.curseAt = S.t; v.curseHits = 0; v.bendAt = null;
+  v.curse = type; v.curseSp = sp; v.curseG = type === 'transform' && sp.motion === 'stuck' ? 'L' : c.g;
+  v.curseT = v.curseDur = clamp(+sp.dur || c.t, 1, 5) * (halved ? .5 : 1); v.curseBy = by; v.buf = null; v.curseAt = S.t; v.curseHits = 0; v.bendAt = null; v.dropHit = false;
   if (halved) pop('HALF BLOCKED!', v, '#9fd8ff', .8);
   v.hp = Math.max(1, v.hp - 5); dmgNum(v, 5, 'special'); if (v.sp < 1) v.sp = Math.max(0, (v.sp || 0) - .22);
-  if (c.g !== 'W') { set(v, 'cursed'); v.vx = v.vz = 0; v.face = Math.sign(by.x - v.x) || v.face; }
+  if (v.curseG !== 'W') { set(v, 'cursed'); v.vx = v.vz = 0; v.face = Math.sign(by.x - v.x) || v.face; }
+  if (type === 'carry') v.carry = { x: v.x, dir: Math.sign(v.x - by.x) || 1 };
   S.freeze = Math.max(S.freeze, .12);  // the puff hides the swap
   if (type === 'fart') for (const g of near(v, S.guests, .32)) { say(g, pick(EWW)); g.dest = { x: clamp(g.x + Math.sign(g.x - v.x || 1) * .3, .05, .95), z: g.z }; }
-  if (type === 'escalator') v.esc = { x: v.x, z: v.z, dir: Math.sign(v.x - by.x) || 1 };
+  if (type === 'escalator') { v.esc = { x: v.x, z: v.z, dir: Math.sign(v.x - by.x) || 1 }; v.esc.run = escRun(v); }
   const [x, y] = at(v, .6); spray(x, y, 24, c.color, 0, H * .35, v.h * .015, .7);
   pop(c.word, v, c.color, 1.3); snd(c.snd, v.x); S.shake = Math.max(S.shake, H * .01);
 }
@@ -639,7 +671,11 @@ function uncurse(v, broken) {
   const c = v.curse;
   if (!c || v.keepCurse) return;
   v.curse = null; v.curseT = 0; v.esc = null; v.immuneT = S.t + 2; v.bendAt = null;  // a while before the next one can land
-  if (v.state === 'cursed') set(v, c === 'balloon' && !broken ? 'fall' : c === 'escalator' ? 'getup' : 'idle');
+  const path = v.curseSp && v.curseSp.path;
+  if (v.state === 'cursed') set(v, c === 'balloon' && !broken ? 'fall' : c === 'escalator' ? 'getup' : c === 'carry' && path !== 'slide' ? 'fall' : 'idle');
+  if (c === 'carry' && path !== 'slide') { v.x = .15 + R() * .7; v.y = 3; v.vy = 0; say(v, 'AAAAH!'); snd('whistle', v.x); }  // dropped back in from the sky
+  if (c === 'carry' && path === 'slide') v.y = 0;
+  v.curseSp = null; v.curseG = null; v.carry = null;
   const [x, y] = at(v, .6); spray(x, y, 16, c === 'ice' ? '#dff6ff' : '#ffffff', 0, H * .3, v.h * .015, .6);
   if (c === 'spoon') { const [x, y] = at(v, .6); burst(x, y, v.h * .8, '#00ff66'); }  // it straightens and bursts into glyphs
   pop(c === 'ice' ? 'CRACK!' : c === 'balloon' ? (broken ? 'POP!' : 'PFFFFT!') : 'POOF!', v, '#fff', 1); snd(c === 'ice' ? 'crack' : c === 'balloon' ? (broken ? 'pop' : 'fart') : 'pop', v.x);
@@ -648,7 +684,7 @@ function curseTick(e, n, dt) {  // every frame on a cursed fighter (host)
   if (e.keepCurse || S.phase === 'finish') return;
   if ((e.curseT -= dt) <= 0 || S.phase !== 'fight') return uncurse(e);
   if (e.curse === 'dizzy' && ctrl[S.players.indexOf(e)] !== 'net') { n.mx = -(n.mx || 0); n.mz = -(n.mz || 0); if (n.roll) n.roll = n.roll.map(v => -v); }  // left is right
-  if (CURSE[e.curse].g === 'L' && BTN.some(k => n[k])) e.curseT = Math.min(e.curseT, Math.max(e.curseT - .07, 1.2 - (S.t - e.curseAt)));  // mash to break free sooner (never under 1.2 s)
+  if (curseG(e) === 'L' && BTN.some(k => n[k])) e.curseT = Math.min(e.curseT, Math.max(e.curseT - .07, 1.2 - (S.t - e.curseAt)));  // mash to break free sooner (never under 1.2 s)
   if (e.state === 'cursed') { BTN.forEach(k => n[k] = false); n.roll = null; }
 }
 function curseMove(e, dt) {  // what a helpless victim does while it lasts
@@ -673,14 +709,44 @@ function curseMove(e, dt) {  // what a helpless victim does while it lasts
     e.vx = (e.inp.mx || 0) * WALK * .5 + Math.sin(e.st * 2.3) * .03; e.vz = (e.inp.mz || 0) * ZWALK * .5;
   }
   else if (c === 'escalator' && e.esc) {  // up on top, shoved, bumping down every step, then a tumble across the floor
-    const s = e.esc, st = e.st, run = .26;
+    const s = e.esc, st = e.st, run = s.run || .26;
     if (st < .5) { e.x = s.x; e.y = Math.min(1, st * 2.4) * .95; e.vx = e.vz = 0; }
     else if (st < 1.7) { const p = (st - .5) / 1.2; e.x = clamp(s.x + s.dir * run * p, .04, .96); e.y = .95 * (1 - p) + .05 * Math.abs(Math.sin(p * 18)); e.vx = 0; }
     else { e.y = 0; e.vx = s.dir * .5 * Math.max(0, 1 - (st - 1.7) / 1.1); }
     e.vy = 0; e.vz = 0;
     if (st > .5 && st < 1.7 && Math.floor(st * 10) !== Math.floor((st - dt) * 10)) snd('thud', e.x, { vol: .35, pitch: 1.4 });
+    if (st > CURSE.escalator.t - .5 && !s.gone) { s.gone = true; const x = (s.x + s.dir * run * .5) * W, y = feetY(s.z); spray(x, y, 20, '#ffffff', 0, H * .2, e.h * .02, .6); snd('pop', e.x); }  // and back into the floor
   }
-  else { e.vx = e.vz = 0; }  // disco, ice, fart: stuck where they stand
+  else if (c === 'transform') {  // they ARE the thing now: waddle / hop / roll about (steerable), stuck, or float off
+    const sp = e.curseSp || {}, mo = sp.motion || 'waddle', n = e.inp;
+    if (mo === 'stuck') { e.vx = e.vz = 0; }
+    else if (mo === 'float') { e.vy = 0; e.y += ((e.st > .5 ? .7 : 0) - e.y) * Math.min(1, dt * 2.5); e.vx = (n.mx || 0) * WALK * .5 + Math.sin(e.st * 2) * .03; e.vz = (n.mz || 0) * ZWALK * .5; }
+    else {
+      const k = mo === 'roll' ? 1.4 : mo === 'hop' ? .9 : 1;
+      if (n.mx || n.mz) { e.vx = (n.mx || 0) * WALK * k; e.vz = (n.mz || 0) * ZWALK * k; if (n.mx) e.face = Math.sign(n.mx); }
+      else {
+        if (e.wander === undefined || R() < dt * 1.2) e.wander = R() * TAU;
+        e.vx = Math.cos(e.wander) * WALK * .45 * k; e.vz = Math.sin(e.wander) * ZWALK * .4 * k; if (Math.abs(e.vx) > .01) e.face = Math.sign(e.vx);
+        if (e.x < .08 || e.x > .92) e.wander = e.x < .5 ? 0 : Math.PI;
+      }
+      if (mo === 'hop' && !e.y && R() < dt * 4) e.vy = 1.1;
+    }
+    if (R() < dt * 1.1) { pop(sp.word || 'POOF!', e, sp.color || '#ffe14d', .8); snd(sp.snd || 'boing', e.x); }
+  } else if (c === 'drop') {  // flattened under it
+    e.vx = e.vz = 0;
+    if (!e.dropHit && e.st > .35) {
+      e.dropHit = true; S.shake = Math.max(S.shake, H * .025); S.freeze = Math.max(S.freeze, .08); snd('crash', e.x); snd('thud', e.x);
+      const [x, y] = at(e, .05); spray(x, y, 18, '#d9cbb0', 0, H * .25, e.h * .02, .6);
+    }
+  } else if (c === 'swarm') { e.vx = e.vz = 0; if (R() < dt * 2) snd((e.curseSp || {}).snd || 'flap', e.x, { vol: .5 }); }
+  else if (c === 'carry') {
+    const sp = e.curseSp || {}, p = clamp(e.st / (e.curseDur || 2.6), 0, 1), cr = e.carry || { x: e.x, dir: 1 };
+    e.vz = 0; e.vy = 0;
+    if (sp.path === 'slide') { e.y = .12; e.vx = 0; e.x = clamp(cr.x + cr.dir * .35 * Math.sin(Math.PI * p), .04, .96); }  // rides it across the floor and back
+    else if (e.st > .4) { e.y = Math.min(4, e.y + dt * (1 + (e.st - .4) * 5)); e.vx = cr.dir * .15; }  // grabbed and hauled up out of the room
+    else e.vx = 0;
+  }
+  else { e.vx = e.vz = 0; }  // disco, ice, fart, encase: stuck where they stand
   if (c === 'disco' && R() < dt * 1.2) pop(pick(['GROOVY!', 'YEAH!', 'WOO!']), e, '#ff6ad5', .7);
 }
 function burst(x, y, r, color) { logEv('b', q3(x / W), toF(y), q3(r / unit()), color); fx({ k: 'burst', x, y, r, color, life: .5, max: .5 }); }
@@ -798,6 +864,49 @@ function react(g) {  // a guest in the viewfinder
   else if (r < .75) { set(g, 'smile'); say(g, 'CHEESE!'); }
   else { set(g, 'shield'); say(g, pick(['NO NO NO!', 'NOT NOW!', 'MY MAKEUP!'])); }
 }
+function moshikBit() {  // the match is won: the photographer's turn
+  const e = S.photog;
+  if (!e || e.gone || e.left || e.state === 'beam' || e.state === 'fall') return;
+  S.moshik = { t: 0 }; e.target = null; e.dest = null; e.aimT = 0;
+}
+function camOff(e) {  // the event's over: the camera goes away, his arms are his own again
+  if (e.nocam || !photogNoCam) return;
+  const r = rigFor('photog-nocam', photogNoCam);
+  if (r) { e.img = photogNoCam; e.rig = r; e.nocam = true; }
+}
+function moshikTick(e, dt) {  // drag a chair in from the edge, sit down near the middle, light up, gripe, demand a whiskey
+  const m = S.moshik, t0 = m.t; m.t += dt;
+  const at_ = (t, fn) => { if (t0 < t && m.t >= t) fn(); };
+  if (!m.side) {
+    m.side = e.x < .5 ? -1 : 1; m.spot = .5 + m.side * .08;
+    Object.assign(e, { x: m.side < 0 ? -.1 : 1.1, z: .8, y: 0, vy: 0, transit: 'in', chair: 1, cig: 0, say: null }); set(e, 'walk'); camOff(e);
+  }
+  if (m.t < 2.8) {
+    const dx = m.spot - e.x;
+    if (Math.abs(dx) > .01) { e.state = 'walk'; e.vx = Math.sign(dx) * .2; e.vz = 0; e.face = Math.sign(dx); if (Math.floor(m.t * 3) !== Math.floor(t0 * 3)) snd('clatter', e.x, { vol: .3, pitch: .55 }); }
+    else { e.state = 'idle'; e.vx = 0; }
+  }
+  at_(2.8, () => { e.transit = null; e.vx = e.vz = 0; e.chair = 2; set(e, 'sit'); e.actFor = 99; e.face = -m.side; snd('thud', e.x, { vol: .5 }); });
+  at_(3.5, () => { e.cig = 1; e.smokeT0 = S.t; });
+  at_(3.8, () => { const [x, y] = cigTip(e); spark(x, y, e.h * .05); snd('pop', e.x, { vol: .4, pitch: 1.8 }); });  // the lighter
+  if (e.cig && R() < dt * 2.5) { const [x, y] = cigTip(e); smoke(x, y, e.h * .025); }
+  if (e.cig && e.nocam) {  // a drag every few seconds; the smoke comes out of his mouth as the hand comes down
+    const p = (S.t - e.smokeT0) % 4, p0 = p - dt;
+    if (p0 < 1.6 && p >= 1.6) for (let i = 0; i < 3; i++) { const [x, y] = at(e, .88, .06 + i * .03); smoke(x, y, e.h * (.03 + i * .01)); }
+  }
+  at_(4.4, () => { const g = pick(GRIPES), w = pick(WHISKEY); m.yell = w; m.yellAt = 4.4 + g.length / 30 + 1.15; talk(e, g); talk(e, w); });
+  if (m.yell) at_(m.yellAt, () => { say(e, m.yell.toUpperCase().slice(0, 40)); snd('gasp', e.x, { pitch: .7 }); });
+}
+function cigTip(e) {  // where the lit end is: at his mouth, or (no camera) wherever his hand has got to
+  if (!e.nocam) return at(e, .87, .13);
+  const k = smokeK(e), [mx, my] = at(e, .9, .14), [rx, ry] = at(e, .32, .24);
+  return [rx + (mx - rx) * k, ry + (my - ry) * k];
+}
+function smokeK(e) {  // 0 = hand resting on the knee, 1 = cigarette at the lips; a 4 s cycle: raise, drag, lower, rest
+  const p = (S.t - (e.smokeT0 || 0)) % 4;
+  return p < .6 ? p / .6 : p < 1.4 ? 1 : p < 2 ? 1 - (p - 1.4) / .6 : 0;
+}
+function smoke(x, y, r) { logEv('o', q3(x / W), toF(y), q3(r / unit())); fx({ k: 'smoke', x, y, r, life: 2.2, max: 2.2, drift: (R() - .5) * .3 }); }
 function flash(e) {
   const [lu, lf] = (e.rig && e.rig.lens) || [.62, .12], [x, y] = at(e, lu, lf);
   flashFx(x, y, e.face, e.h); snd('shutter', e.x);
@@ -1124,10 +1233,10 @@ function update(dt) {
         if (mode === 'cpu' && S.final) {
           const won = wi === 0; S.banner = won && S.level === 3 ? 'CHAMPION!' : won ? 'YOU WIN!' : 'YOU LOSE'; snd(won ? 'youwin' : 'youlose');
         } else { S.banner = S.final ? `${w.name} WINS THE MATCH` : `${w.name} WINS ROUND ${S.round}`; snd(w.hp >= HP ? 'flawless' : 'winner'); }
-        if (S.final) S.confetti = 6;
+        if (S.final) { S.confetti = 6; moshikBit(); }
       }
     }
-    if (S.crowned && !S.next && S.phaseT > (S.final ? 8 : 5.5)) { S.next = true; next(); if (!S) return; }
+    if (S.crowned && !S.next && S.phaseT > (S.final ? (S.moshik ? 14 : 8) : 5.5)) { S.next = true; next(); if (!S) return; }
   }
   if (S.phase === 'fight') S.players.forEach((p, i) => ctrl[i] === 'cpu' ? cpu(p, dt) : ctrl[i] === 'net' ? netIn(p) : human(p, i));
   else S.players.forEach(p => { BTN.forEach(k => p.inp[k] = false); p.inp.roll = null; });
@@ -1231,7 +1340,7 @@ function person_(e, dt) {
     const rival = S.players.find(p => p !== e), side = rival ? Math.sign(rival.x - e.x) : 0;
     if (side && side !== e.side) { e.side = side; e.sideAt = S.t; }  // they just crossed over
     if (e.state === 'grabbed' && n.grab && e.st < (e.remote ? .29 : .2) && e.grabber) tech(e);
-    if (e.curse === 'cake' && n.grab) { e.curseT -= .35; n.grab = false; pop('WIPE!', e, '#fff6e6', .7); }  // wipe some cream off
+    if ((e.curse === 'cake' || e.curse === 'face') && n.grab) { e.curseT -= .35; n.grab = false; pop('WIPE!', e, '#fff6e6', .7); }  // wipe some cream off
     if (pinned) {  // the online guest moves its own fighter; the host takes its word for where it is while it's free
       const [x, z, y, f, walking] = e.remote, nx = clamp(x, .04, .96);
       if (!e.y && y > .05) snd('swing', e.x, { pitch: .6 });
@@ -1262,7 +1371,7 @@ function person_(e, dt) {
       if (S.t - e.buf.t > .15) e.buf = null;
       else if (e.state === 'idle' || e.state === 'walk' || canCancel(e) || (e.state === 'roll' && e.roll && e.roll.kind === 'chase' && e.st > .05)) { const k = e.buf.kind; e.buf = null; attack(e, k); }
     }
-  } else if (e.role === 'photog') photog(e, dt, free);
+  } else if (e.role === 'photog') S.moshik ? moshikTick(e, dt) : photog(e, dt, free);
   else if (free) {
     if (!e.dest && e.wander && !e.transit && !e.task && !(S.disco > 0) && R() < dt * .4) e.dest = spot();
     stroll(e);
@@ -1374,7 +1483,7 @@ function person_(e, dt) {
   const wide = e.transit || e.state === 'horse' || e.state === 'rider';
   if (!pinned) { e.x = clamp(e.x + e.vx * dt, wide ? -.25 : .04, wide ? 1.25 : .96); e.z = clamp(e.z + e.vz * dt, 0, 1); }
   if (!free && e.state !== 'horse') { const f = Math.exp(-5 * dt); e.vx *= f; e.vz *= f; }  // knockbacks die down; walking speeds are set fresh each frame
-  if (!pinned && e.state !== 'beam' && e.state !== 'rider' && e.state !== 'grabbed' && !(e.state === 'cursed' && (e.curse === 'balloon' || e.curse === 'escalator')) && (e.y > 0 || e.vy > 0)) {
+  if (!pinned && e.state !== 'beam' && e.state !== 'rider' && e.state !== 'grabbed' && !(e.state === 'cursed' && (e.curse === 'balloon' || e.curse === 'escalator' || e.curse === 'carry' || (e.curse === 'transform' && e.curseSp && e.curseSp.motion === 'float'))) && (e.y > 0 || e.vy > 0)) {
     e.vy -= 7 * dt; e.y = Math.max(0, e.y + e.vy * dt); if (!e.y) { e.vy = 0; e.airN = 0; }
   }
   if (e.state === 'walk' || e.state === 'horse') e.walkPh += dt * (5 + Math.hypot(e.vx, e.vz) * 30);
@@ -1417,7 +1526,7 @@ function poseFor(e) {
     case 'pee': return POSE.pee();
     case 'eat': return POSE.drink(st);
     case 'dance': return POSE.dance(t);
-    case 'sit': return POSE.sit();
+    case 'sit': return e.role === 'photog' ? (e.nocam ? POSE.smoke(e.cig ? smokeK(e) : 0) : POSE.camSit()) : POSE.sit();
     case 'gift': return POSE.gift(t);
     case 'booth': return POSE.smile();
     case 'watch': return S.heat > .6 || e.cheer > 0 ? POSE.cheer(t) : POSE.stand(t);
@@ -1429,7 +1538,7 @@ function poseFor(e) {
   const walking = e.state === 'walk';
   if (e.aimT > 0) return POSE.aim();
   if (e.role === 'fighter') return e.y > .02 ? POSE.jump() : walking ? (e.running ? POSE.sprint(e.walkPh) : POSE.march(e.walkPh)) : POSE.guard(t);
-  if (e.role === 'photog') return walking ? POSE.camWalk(e.walkPh) : POSE.stand(t);
+  if (e.role === 'photog') return walking ? (e.nocam && e.chair === 1 ? POSE.drag(e.walkPh) : POSE.camWalk(e.walkPh)) : POSE.stand(t);
   if (walking) return e.run ? POSE.run(e.walkPh) : POSE.walk(e.walkPh);
   if (S.disco > 0) return POSE.dance(t);
   if (e.cheer > 0) return POSE.cheer(t);
@@ -1461,6 +1570,7 @@ function drawItem(type, h, ang, ammo, g = ctx) {
   g.restore();
 }
 function holding(e) {  // in the front hand: +x runs along the forearm, so 0 = held like a hammer, D = pointing where the arm points
+  if (!e.item && !e.prop && e.cig) return cigInHand(e);
   const type = e.item ? e.item.type : e.prop;
   const ang = type === 'raygun' ? 0 : e.aimT > 0 || (e.state === 'attack' && e.move === MOVES.fork) ? D : e.state === 'drink' ? D + .5 : 0;
   drawItem(type, e.h, ang, e.item ? e.item.ammo : 0);
@@ -1526,9 +1636,11 @@ function drawPerson(e) {
     if (!DOWN.has(e.state)) { const [x, y] = at(e, 1.1); label(net ? (p === mySlot() ? 'YOU' : 'P' + (p + 1)) : `P${p + 1}`, x, y, h * .07, 'center', TEAM[p], 'pixel'); }
   }
   const bob = bobOf(e);
+  if (e.chair) drawChair(e);
   if (e.curse === 'escalator' && e.esc && e.state === 'cursed') drawEscalator(e);
+  if (e.curse === 'carry' && e.state === 'cursed' && e.curseSp && e.curseSp.path === 'slide') drawCarry(e);
   if (e.state === 'cast' && e.castX != null) {  // the special's bolt running along the floor to where the rival stood
-    const p = clamp(e.st / CAST_HIT, 0, 1), x0 = e.X, y0 = feetY(e.z), x1 = x0 + (e.castX * W - x0) * p, y1 = y0 + (feetY(e.castZ) - y0) * p, c = (CURSE[e.cast] || CURSE.pig).color;
+    const p = clamp(e.st / CAST_HIT, 0, 1), x0 = e.X, y0 = feetY(e.z), x1 = x0 + (e.castX * W - x0) * p, y1 = y0 + (feetY(e.castZ) - y0) * p, c = spOf(e.k).color || (CURSE[e.cast] || CURSE.pig).color;
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = c; ctx.lineCap = 'round';
     ctx.lineWidth = h * .03; ctx.globalAlpha = .5; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     ctx.globalAlpha = 1; ctx.fillStyle = '#fff'; for (let i = 0; i < 4; i++) star(x1 + (R() - .5) * h * .1, y1 - h * (.05 + R() * .25), h * .025, i % 2 ? c : '#ffffff');
@@ -1537,7 +1649,7 @@ function drawPerson(e) {
   if (critter(e)) { drawCritter(e, bob); return curseFx(e); }
   ctx.save(); ctx.translate(e.X, e.Y - bob); ctx.scale(e.face, 1); turn(ctx, e);
   if (e.flash > 0) ctx.filter = 'brightness(2.6)';
-  if (e.rig) Puppet.draw(ctx, e.rig, e.ang, h, { sink: e.sink, hand: e.item || e.prop ? () => holding(e) : null });
+  if (e.rig) Puppet.draw(ctx, e.rig, e.ang, h, { sink: e.sink, hand: e.item || e.prop || (e.cig && e.nocam) ? () => holding(e) : null });
   else {
     const w = h * e.img.width / e.img.height;
     ctx.drawImage(e.img, -w / 2, -h, w, h);
@@ -1550,14 +1662,59 @@ function drawPerson(e) {
     for (let i = 0; i < 3; i++) { const q = S.t * 4 + i * TAU / 3; star(x + Math.cos(q) * h * .08, y - h * .06 + Math.sin(q) * h * .025, h * .022, '#ffe14d'); }
   }
   if (e.curse) curseFx(e);
+  if (e.cig) drawCig(e);
+  if (e.state === 'cursed' && e.curse === 'drop') drawDrop(e);
+  if (e.state === 'cursed' && e.curse === 'carry' && !(e.curseSp && e.curseSp.path === 'slide')) drawCarry(e);
+}
+function drawChair(e) {  // Moshik's chair: dragged tilted behind him, then set down under him
+  const P = prop('xchair');
+  if (!P) return;
+  const h = e.h, base = P.base || [.5, 1], seat = P.seat || [.5, .55], ih = h * .27 / Math.max(.15, base[1] - seat[1]), iw = ih * P.im.width / P.im.height;
+  ctx.save();
+  if (e.chair === 1) { ctx.translate(e.X - e.face * h * .2, feetY(e.z)); ctx.rotate(-e.face * .45); }  // tipped back on two legs, scraping along
+  else ctx.translate(e.X - e.face * h * .03, feetY(e.z));
+  ctx.scale((P.facing === 'left' ? -1 : 1) * e.face, 1);
+  ctx.drawImage(P.im, -base[0] * iw, -base[1] * ih, iw, ih);
+  ctx.restore();
+}
+function cigInHand(e) {  // between the fingers, pointing out of the fist; the tip glows while he drags on it
+  const P = prop('cigarette');
+  if (!P) return;
+  const f = P.filter || [0, .5], t = P.tip || [1, .5], len = e.h * .075, iw = len / Math.max(.2, t[0] - f[0]), ih = iw * P.im.height / P.im.width;
+  ctx.save(); ctx.rotate(-D * .7); ctx.drawImage(P.im, -f[0] * iw, -f[1] * ih, iw, ih);
+  if (smokeK(e) > .9) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255, 120, 30, .8)'; ctx.beginPath(); ctx.arc((t[0] - f[0]) * iw, (t[1] - f[1]) * ih, e.h * .006, 0, TAU); ctx.fill(); }
+  ctx.restore();
+}
+function drawCig(e) {
+  const P = prop('cigarette');
+  if (!P || e.nocam) return;
+  const [x, y] = at(e, .87, .03), f = P.filter || [0, .5], t = P.tip || [1, .5], len = e.h * .075, iw = len / Math.max(.2, t[0] - f[0]), ih = iw * P.im.height / P.im.width;
+  ctx.save(); ctx.translate(x, y); ctx.scale(e.face, 1); ctx.rotate(.18); ctx.drawImage(P.im, -f[0] * iw, -f[1] * ih, iw, ih); ctx.restore();
 }
 function turn(g, e) {  // a roll spins about the middle of the body, not the feet; a cursed body shrinks or puffs up
   const c = (e.state === 'roll' && Math.abs(e.rot) > .01) || (e.state === 'cursed' && e.curse === 'escalator' && e.st > .5) ? e.h * .38 : 0;
   g.translate(0, -c); g.rotate(e.rot); g.translate(0, c);
   if (e.curse === 'tiny') g.scale(.5, .5);
+  else if (e.curse === 'drop' && e.state === 'cursed' && e.st > .35) g.scale(1.4, .22);  // paper-flat
   else if (e.curse === 'balloon' && e.state === 'cursed') { const k = Math.min(1, e.st * 2.5); g.scale(1 + .7 * k + .05 * Math.sin(S.t * 9), 1 + .25 * k); }
 }
-const critter = e => e.curse === 'spoon' || (e.state === 'cursed' && (e.curse === 'pig' || e.curse === 'chicken'));
+const propImg = {};
+function prop(key) {  // a photo prop from props.js (cut out with a paper rim like the people, plus where things go on it), once it has decoded
+  const p = window.PROPS && window.PROPS[key];
+  if (!p || !p.img) return null;
+  if (!propImg[key]) { const i = new Image(); i.src = p.img; propImg[key] = i; }
+  return propImg[key].complete && propImg[key].naturalWidth ? Object.assign({ im: propImg[key] }, p) : null;
+}
+const critterKey = e => e.curse === 'transform' ? spProp(e) : e.curse;
+const critter = e => (e.curse === 'spoon' || (e.state === 'cursed' && (e.curse === 'pig' || e.curse === 'chicken' || e.curse === 'transform'))) && !!prop(critterKey(e));
+function rimmed(cv) {  // the face with a white paper edge, like everything else cut out of a photo
+  if (cv.rim) return cv.rim;
+  const r = Math.max(2, Math.round(cv.height * .04)), c = Object.assign(document.createElement('canvas'), { width: cv.width + 2 * r, height: cv.height + 2 * r }), g = c.getContext('2d');
+  for (let a = 0; a < TAU; a += TAU / 12) g.drawImage(cv, r + Math.cos(a) * r, r + Math.sin(a) * r);
+  g.globalCompositeOperation = 'source-in'; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.globalCompositeOperation = 'source-over'; g.drawImage(cv, r, r);
+  return (cv.rim = c);
+}
 function headOf(e) {  // the victim's face, cut from their puppet (or the top of a flat cut-out)
   const r = e.rig;
   if (r && r.parts.head) {
@@ -1572,89 +1729,78 @@ function headOf(e) {  // the victim's face, cut from their puppet (or the top of
   if (!e.headCv) { const c = Object.assign(document.createElement('canvas'), { width: e.img.width, height: Math.round(e.img.height * .22) }); c.getContext('2d').drawImage(e.img, 0, 0); e.headCv = c; }
   return [e.headCv, 1 / e.img.height];
 }
-function drawCritter(e, bob, g = ctx) {  // a pig, a chicken or a spoon wearing the victim's face
-  const h = e.h, hd = headOf(e), t = S.t + e.seed, walk = Math.hypot(e.vx, e.vz) > .01;
-  const head = (x, y, size) => {  // centred on x, bottom at y, `size` = its height
-    if (!hd) return null;
-    const [cv] = hd, k = size / cv.height, w = cv.width * k;
-    g.drawImage(cv, x - w / 2, y - size, w, size); return [x, y - size, w, size];
-  };
-  const blob = (fill, path) => { g.beginPath(); path(); g.lineWidth = h * .03; g.strokeStyle = '#fff'; g.stroke(); g.fillStyle = fill; g.fill(); };
-  g.save(); g.translate(e.X, e.Y - bob); g.scale(e.face, 1); g.lineJoin = 'round'; g.lineCap = 'round';
-  const hs = (hd ? hd[0].height * hd[1] * h : h * .2) * (e.curse === 'spoon' ? 1 : 1.7);  // a big cartoon head on a little animal
-  if (e.curse === 'pig') {
-    const wob = walk ? Math.sin(t * 16) * .35 : 0, by = -h * .2 + (walk ? Math.abs(Math.sin(t * 16)) * h * .015 : 0);
-    for (const [lx, ph] of [[-.15, 0], [-.06, 1], [.07, 0], [.16, 1]]) {
-      g.save(); g.translate(lx * h, by + h * .07); g.rotate(ph ? wob : -wob); blob('#f19cb2', () => g.roundRect(-h * .025, 0, h * .05, h * .14, h * .02)); g.restore();
-    }
-    blob('#f7b3c4', () => g.ellipse(0, by, h * .25, h * .14, 0, 0, TAU));
-    g.strokeStyle = '#e88aa3'; g.lineWidth = h * .015; g.beginPath();  // the curly tail
-    for (let i = 0; i <= 20; i++) { const q = i / 20 * TAU * 1.5, rr = h * .03 * (1 - i / 30); g.lineTo(-h * .25 - h * .02 + Math.cos(q) * rr, by - h * .05 + Math.sin(q) * rr); }
-    g.stroke();
-    const f = head(h * .2, by - h * .02, hs);
-    if (f) {
-      const [x, y, w, hh] = f;
-      for (const s of [-1, 1]) blob('#f19cb2', () => { g.moveTo(x + s * w * .18, y + hh * .12); g.lineTo(x + s * w * .42, y - hh * .14); g.lineTo(x + s * w * .4, y + hh * .26); g.closePath(); });
-      blob('#f5a3b9', () => g.ellipse(x, y + hh * .62, w * .17, hh * .11, 0, 0, TAU));  // the snout over their nose
-      g.fillStyle = '#9c4a5e'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(x + s * w * .06, y + hh * .62, w * .03, hh * .04, 0, 0, TAU); g.fill(); }
-    }
-  } else if (e.curse === 'chicken') {
-    const flap = Math.sin(t * 22), by = -h * .24;
-    g.strokeStyle = '#f2a20c'; g.lineWidth = h * .014;
-    for (const lx of [-.04, .04]) { g.beginPath(); g.moveTo(lx * h, by + h * .1); g.lineTo(lx * h, 0); g.lineTo(lx * h + h * .04, 0); g.stroke(); }
-    blob('#ffffff', () => { g.moveTo(-h * .2, by - h * .1); g.lineTo(-h * .3, by - h * .2); g.lineTo(-h * .24, by - h * .02); g.closePath(); });  // tail feathers
-    blob('#fffaf0', () => g.ellipse(0, by, h * .17, h * .14, 0, 0, TAU));
-    g.save(); g.translate(-h * .02, by - h * .02); g.rotate(-.3 - flap * .6); blob('#f3ead8', () => g.ellipse(-h * .08, 0, h * .1, h * .05, 0, 0, TAU)); g.restore();
-    const f = head(h * .1, by - h * .08, hs);
-    if (f) {
-      const [x, y, w, hh] = f;
-      blob('#e8262f', () => { for (let i = 0; i < 3; i++) g.arc(x - w * .15 + i * w * .15, y + hh * .04, w * .09, Math.PI, 0); });  // the comb
-      blob('#ffb21a', () => { g.moveTo(x + w * .1, y + hh * .55); g.lineTo(x + w * .45, y + hh * .63); g.lineTo(x + w * .1, y + hh * .72); g.closePath(); });  // the beak
-    }
-  } else {  // the spoon: their face upside down in the bowl (as a spoon shows you), a neck that bends, lying on the floor at the end
-    const bend = e.finBend ?? (e.bendAt ? .7 * Math.max(0, 1 - (S.t - e.bendAt) / .4) : 0);  // a hit bends it 40 degrees and it springs back
+function drawCritter(e, bob, g = ctx) {  // the photo pig, chicken or spoon with the victim's face pasted on, rocking like a paper puppet
+  const P = prop(critterKey(e)), h = e.h, hd = headOf(e), t = S.t + e.seed, walk = Math.hypot(e.vx, e.vz) > .01, sp = e.curseSp || {};
+  if (!P) return;
+  const im = P.im, face = hd && rimmed(hd[0]);
+  g.save(); g.translate(e.X, e.Y - bob);
+  if (e.curse === 'spoon') {  // standing on its handle; a hit bends it at the neck and it springs back; the finisher snaps it and it topples
+    const ih = h * .95 / (P.foot || 1), iw = ih * im.width / im.height, x0 = -iw / 2, y0 = -ih * (P.foot || 1);
+    const bend = e.finBend ?? (e.bendAt ? .7 * Math.max(0, 1 - (S.t - e.bendAt) / .4) : 0);
     const shiver = S.spoonFin && S.spoonFin.t > 1.6 && S.spoonFin.t < 2.4 ? (R() - .5) * 2 * DPR : 0;
-    g.translate(shiver, 0); g.rotate(e.rot + (e.state === 'cursed' ? Math.sin(t * 3) * .05 : 0));
-    const L = h, py = -L * .55, grad = g.createLinearGradient(-L * .12, 0, L * .12, 0);
-    grad.addColorStop(0, '#8d99a6'); grad.addColorStop(.45, '#f4f8fb'); grad.addColorStop(1, '#a7b2bd');
-    blob(grad, () => { g.moveTo(-L * .035, 0); g.quadraticCurveTo(-L * .018, py * .5, -L * .026, py); g.lineTo(L * .026, py); g.quadraticCurveTo(L * .018, py * .5, L * .035, 0); g.closePath(); });
-    g.save(); g.translate(0, py); g.rotate(bend);  // it bends at the neck
-    const rx = L * .17, ry = L * .24, cy = -ry;
-    blob(grad, () => { g.moveTo(-L * .026, 0); g.quadraticCurveTo(0, -ry * .1, -rx * .5, cy + ry * .85); g.ellipse(0, cy, rx, ry, 0, Math.PI * .62, Math.PI * 2.38); g.quadraticCurveTo(0, -ry * .1, L * .026, 0); g.closePath(); });
-    g.save(); g.beginPath(); g.ellipse(0, cy, rx * .84, ry * .84, 0, 0, TAU); g.clip();
-    if (hd) { const [cv] = hd, k = (ry * 1.6) / cv.height; g.save(); g.translate(0, cy); g.scale(1, -1); g.drawImage(cv, -cv.width * k / 2, -ry * .8, cv.width * k, ry * 1.6); g.restore(); }
-    g.fillStyle = 'rgba(255, 255, 255, .28)'; g.beginPath(); g.ellipse(-rx * .4, cy - ry * .35, rx * .18, ry * .32, -.4, 0, TAU); g.fill();  // a shine
-    if (e.xEyes) {  // knocked out
-      g.strokeStyle = '#1d0d00'; g.lineWidth = L * .014;
-      for (const sx of [-1, 1]) { const ex = sx * rx * .32, ey = cy + ry * .18, r = rx * .12; g.beginPath(); g.moveTo(ex - r, ey - r); g.lineTo(ex + r, ey + r); g.moveTo(ex + r, ey - r); g.lineTo(ex - r, ey + r); g.stroke(); }
+    g.translate(shiver, 0); g.rotate(e.rot + (e.state === 'cursed' ? Math.sin(t * 3) * .05 : 0)); g.scale(e.face, 1);
+    const nx = x0 + P.neck[0] * iw, ny = y0 + P.neck[1] * ih;
+    g.save(); g.beginPath(); g.rect(x0 - iw, ny, iw * 3, ih); g.clip(); g.drawImage(im, x0, y0, iw, ih); g.restore();  // the handle
+    g.save(); g.translate(nx, ny); g.rotate(bend); g.translate(-nx, -ny);  // the bowl, bent at the neck
+    g.beginPath(); g.rect(x0 - iw, y0 - ih, iw * 3, ny - y0 + ih); g.clip(); g.drawImage(im, x0, y0, iw, ih);
+    const [bx, by, rx, ry] = P.bowl, cx = x0 + bx * iw, cy = y0 + by * ih;
+    g.beginPath(); g.ellipse(cx, cy, rx * iw * .92, ry * ih * .92, 0, 0, TAU); g.clip();
+    if (hd) { const fh = ry * ih * 1.7, fw = hd[0].width * fh / hd[0].height; g.save(); g.translate(cx, cy); g.scale(1, -1); g.globalAlpha = .9; g.drawImage(hd[0], -fw / 2, -fh / 2, fw, fh); g.restore(); }  // upside down, as a spoon shows you
+    if (e.xEyes) {
+      g.strokeStyle = '#1d0d00'; g.lineWidth = h * .014;
+      for (const sx of [-1, 1]) { const ex = cx + sx * rx * iw * .3, ey = cy + ry * ih * .15, r = rx * iw * .12; g.beginPath(); g.moveTo(ex - r, ey - r); g.lineTo(ex + r, ey + r); g.moveTo(ex + r, ey - r); g.lineTo(ex - r, ey + r); g.stroke(); }
     }
-    g.restore(); g.restore();
+    g.restore();
+  } else {  // pig, chicken or any transform: the photo thing with their face on it
+    const ih = h * (+sp.size || (e.curse === 'pig' ? .5 : .55)), iw = ih * im.width / im.height, flip = (P.facing === 'left' ? -1 : 1) * e.face;
+    if (sp.motion === 'roll' && walk) { g.translate(0, -ih * .45); g.rotate(e.st * 7 * e.face); g.translate(0, ih * .45); }
+    else g.rotate(walk ? Math.sin(t * 14) * .07 : Math.sin(t * 2) * .02);  // waddle
+    if (e.curse === 'chicken' && e.y > .01) g.rotate(-.15 * flip);
+    g.scale(flip, 1);
+    const x0 = -iw / 2, y0 = -ih * (P.feet || 1);
+    g.drawImage(im, x0, y0, iw, ih);
+    if (face) { const [fx, fy, fh] = P.face || [.5, .22, .3], sh = fh * ih * 1.35, sw = face.width * sh / face.height; g.drawImage(face, x0 + fx * iw - sw / 2, y0 + fy * ih - sh / 2, sw, sh); }
   }
   g.restore();
 }
-function drawEscalator(e) {  // a moving staircase from the top (where they were standing) down and away from the caster
-  const s = e.esc, x0 = s.x * W, x1 = clamp(s.x + s.dir * .26, .04, .96) * W, yb = feetY(s.z), up = e.h * .95 * Math.min(1, e.st * 3), rise = Math.min(1, e.st * 3);
-  const sink = e.st > CURSE.escalator.t - .5 ? (e.st - (CURSE.escalator.t - .5)) * 2 : 0;
-  ctx.save(); ctx.globalAlpha = Math.max(0, 1 - sink);
-  const top = yb - up, w = e.h * .16;
-  ctx.fillStyle = '#5b6670'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = e.h * .012; ctx.lineJoin = 'round';
-  ctx.beginPath(); ctx.moveTo(x0 - s.dir * w, yb); ctx.lineTo(x0 - s.dir * w, top); ctx.lineTo(x0 + s.dir * w * .4, top); ctx.lineTo(x1 + s.dir * w * .6, yb); ctx.closePath(); ctx.fill(); ctx.stroke();
-  const n = 9, ph = (S.t * 3) % 1;  // the steps keep moving down
-  ctx.strokeStyle = '#c9d3dc'; ctx.lineWidth = e.h * .01;
-  for (let i = 0; i < n; i++) {
-    const p = (i + ph) / n, x = x0 + s.dir * w * .4 + (x1 - x0 - s.dir * w * .4) * p, y = top + (yb - top) * p;
-    ctx.beginPath(); ctx.moveTo(x - s.dir * w * .5, y); ctx.lineTo(x, y); ctx.lineTo(x, y + (yb - top) / n); ctx.stroke();
-  }
-  ctx.strokeStyle = '#1d232a'; ctx.lineWidth = e.h * .025; ctx.beginPath(); ctx.moveTo(x0 - s.dir * w, top - e.h * .12 * rise); ctx.lineTo(x1 + s.dir * w * .2, yb - e.h * .12 * rise); ctx.stroke();  // the handrail
+function drawDrop(e) {  // the thing falls out of the sky and stays on top of the flattened victim
+  const P = prop(spProp(e));
+  if (!P) return;
+  const ih = e.h * (+(e.curseSp || {}).size || .9), iw = ih * P.im.width / P.im.height, base = P.base || [.5, 1], f = clamp(e.st / .35, 0, 1);
+  const land = e.Y - e.h * .2, y = -ih + (land + ih) * f * f, wob = f >= 1 ? Math.sin(e.st * 18) * Math.max(0, 1 - (e.st - .35) * 3) * .06 : 0;
+  ctx.save(); ctx.translate(e.X, y); ctx.rotate(wob); ctx.drawImage(P.im, -base[0] * iw, -base[1] * ih, iw, ih); ctx.restore();
+}
+function drawCarry(e) {  // whatever hauls them off (above them) or carries them along the floor (under them)
+  const P = prop(spProp(e)), sp = e.curseSp || {};
+  if (!P) return;
+  const ih = e.h * (+sp.size || .8), iw = ih * P.im.width / P.im.height, grip = P.grip || (sp.path === 'slide' ? [.5, .4] : [.5, .95]);
+  const flip = (P.facing === 'left' ? -1 : 1) * ((e.carry && e.carry.dir) || 1);
+  const [x, y] = sp.path === 'slide' ? at(e, .02) : at(e, 1.02), drop = sp.path === 'slide' ? 0 : Math.max(0, 1 - e.st / .4) * H;
+  ctx.save(); ctx.translate(x, y - drop); ctx.scale(flip, 1); ctx.rotate(sp.path === 'slide' ? 0 : Math.sin(S.t * 8) * .06);
+  ctx.drawImage(P.im, -grip[0] * iw, -grip[1] * ih, iw, ih); ctx.restore();
+}
+function drawEscalator(e) {  // the photo escalator rises out of the floor under the victim (who rides up to its top landing), then sinks back
+  const P = prop('escalator'), s = e.esc;
+  if (!P || !s) return;
+  const lift = e.h * .95, ih = lift / Math.max(.2, P.bottom[1] - P.top[1]), iw = ih * P.im.width / P.im.height, yb = feetY(s.z), end = CURSE.escalator.t;
+  const rise = clamp(Math.min(e.st / .5, (end - e.st) / .5), 0, 1);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, yb + e.h * .02); ctx.clip();  // whatever is below the floor stays hidden
+  ctx.translate(s.x * W, yb - lift * rise); ctx.scale(s.dir, 1);  // the photo goes down to the right; mirrored when they fall left
+  ctx.drawImage(P.im, -P.top[0] * iw, -P.top[1] * ih, iw, ih);
   ctx.restore();
+}
+function escRun(v) {  // how far along the floor the escalator carries them (floor widths)
+  const P = prop('escalator');
+  if (!P) return .26;
+  const ih = v.h * .95 / Math.max(.2, P.bottom[1] - P.top[1]), iw = ih * P.im.width / P.im.height;
+  return clamp((P.bottom[0] - P.top[0]) * iw / W, .1, .4);
 }
 function curseFx(e) {  // what floats around a cursed fighter
   const h = e.h, t = S.t + e.seed, [hx, hy] = at(e, .9);
-  if (e.curse === 'ice' && e.state === 'cursed') {
-    ctx.save(); ctx.fillStyle = 'rgba(170, 220, 255, .38)'; ctx.strokeStyle = 'rgba(255, 255, 255, .85)'; ctx.lineWidth = h * .01;
-    ctx.beginPath(); ctx.roundRect(e.X - h * .2, e.Y - h * 1.08, h * .4, h * 1.1, h * .04); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(e.X - h * .14, e.Y - h * .95); ctx.lineTo(e.X - h * .05, e.Y - h * .7); ctx.moveTo(e.X + h * .1, e.Y - h * .9); ctx.lineTo(e.X + h * .15, e.Y - h * .78); ctx.stroke();
-    ctx.restore();
+  const P = prop(e.curse === 'encase' || e.curse === 'face' || e.curse === 'swarm' ? spProp(e) : e.curse), sp = e.curseSp || {};
+  if ((e.curse === 'ice' || e.curse === 'encase') && e.state === 'cursed' && P) {  // the photo ice block, its inside fitted around them
+    const [a0, b0, a1, b1] = P.inner || [.1, .1, .9, .95], bw = h * .42, bh = h * 1.1, iw = bw / (a1 - a0), ih = bh / (b1 - b0);
+    ctx.drawImage(P.im, e.X - bw / 2 - a0 * iw, e.Y - bh - b0 * ih, iw, ih);
   } else if (e.curse === 'fart') {
     for (let i = 0; i < 7; i++) {
       const q = t * 1.3 + i * 1.7, r = h * (.08 + .03 * Math.sin(t * 3 + i));
@@ -1665,11 +1811,15 @@ function curseFx(e) {  // what floats around a cursed fighter
   } else if (e.curse === 'smooch') {
     for (let i = 0; i < 3; i++) { const q = t * 3 + i * TAU / 3; heart(hx + Math.cos(q) * h * .13, hy - h * .08 + Math.sin(q) * h * .04, h * .03); }
     ctx.strokeStyle = '#e8173a'; ctx.lineWidth = h * .012; ctx.beginPath(); ctx.arc(hx + e.face * h * .03, hy + h * .02, h * .02, .2, Math.PI - .2); ctx.stroke();  // lipstick
-  } else if (e.curse === 'cake') {
-    ctx.fillStyle = '#fffaf0'; ctx.strokeStyle = '#f2d8c0'; ctx.lineWidth = h * .006;
-    ctx.beginPath(); ctx.ellipse(hx, hy, h * .075, h * .06, 0, 0, TAU); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#ffc2d6'; ctx.beginPath(); ctx.ellipse(hx - h * .02, hy - h * .03, h * .035, h * .02, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#d0021b'; ctx.beginPath(); ctx.arc(hx + h * .01, hy - h * .055, h * .014, 0, TAU); ctx.fill();  // the cherry on top
+  } else if ((e.curse === 'cake' || e.curse === 'face') && P) {  // the photo thing stuck on their face (or on their head)
+    const [ax, ay] = sp.spot === 'head' ? at(e, 1.0) : [hx, hy], iw = h * .14 * (+sp.size || 1) / (P.w || .6), ih = iw * P.im.height / P.im.width, [cx, cy] = P.center || [.5, .5];
+    ctx.drawImage(P.im, ax - cx * iw, ay - cy * ih, iw, ih);
+  } else if (e.curse === 'swarm' && P && e.state === 'cursed') {  // a cloud of them buzzing about, darting in and out
+    const n = clamp(+sp.n || 6, 3, 12), sz = h * clamp(+sp.size || .1, .04, .25), iw = sz * P.im.width / Math.max(P.im.width, P.im.height), ih = sz * P.im.height / Math.max(P.im.width, P.im.height);
+    for (let i = 0; i < n; i++) {
+      const q = t * (1.6 + i * .17) + i * 2.4, x = e.X + Math.cos(q) * h * (.22 + .08 * Math.sin(t * 3 + i)), y = e.Y - h * (.55 + .3 * Math.sin(q * 1.3 + i)), dir = -Math.sin(q) < 0 ? -1 : 1;
+      ctx.save(); ctx.translate(x, y); ctx.scale(dir * (P.facing === 'left' ? -1 : 1), 1); ctx.rotate(Math.sin(t * 9 + i) * .25); ctx.drawImage(P.im, -iw / 2, -ih / 2, iw, ih); ctx.restore();
+    }
   } else if (e.curse === 'disco' && e.state === 'cursed') {
     for (let i = 0; i < 8; i++) { const q = t * 4 + i * TAU / 8; ctx.fillStyle = `hsl(${(i * 45 + t * 200) % 360} 90% 70%)`; ctx.fillRect(e.X + Math.cos(q) * h * .25, e.Y - h * .5 + Math.sin(q) * h * .35, h * .02, h * .02); }
   } else if (e.curse === 'dizzy') {
@@ -1862,6 +2012,10 @@ function drawFx(f) {
   } else if (f.k === 'dmg') {  // pops in at 1.4x, settles in 0.08 s, rises, fades in its last quarter second
     const age = f.max - f.life, s = f.size * (age < .08 ? 1.4 - 5 * age : 1);
     ctx.globalAlpha = Math.min(1, f.life / .25); label(f.text, f.x, f.y - H * .08 * (age / f.max), s, 'center', f.color);
+  } else if (f.k === 'smoke') {  // a puff from the cigarette: rises, drifts, swells, fades
+    const age = f.max - f.life, r = f.r * (1 + age * 1.6);
+    ctx.globalAlpha = .4 * (f.life / f.max); ctx.fillStyle = '#e4e4e4';
+    ctx.beginPath(); ctx.arc(f.x + f.drift * age * H * .05, f.y - age * H * .05, r, 0, TAU); ctx.fill();
   } else if (f.k === 'burst') {  // a special's super flash: a ring of light around the caster
     const r = f.r * (1.4 - a * .9); ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a;
     const g = ctx.createRadialGradient(f.x, f.y, r * .2, f.x, f.y, r); g.addColorStop(0, 'rgba(255, 255, 255, .9)'); g.addColorStop(.6, f.color); g.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -1924,7 +2078,7 @@ function cutIn(c) {  // the caster's face slides in on a slanted band during a s
   const e = c.e, k = clamp(Math.min((1.1 - c.t) * 6, c.t * 4), 0, 1), left = S.players.indexOf(e) !== 1, bh2 = H * .22, y0 = H * .62, hd = headOf(e);
   ctx.save(); ctx.globalAlpha = k; ctx.translate(left ? -(1 - k) * W * .3 : (1 - k) * W * .3, 0);
   ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0 - H * .08); ctx.lineTo(W, y0 - H * .08 + bh2); ctx.lineTo(0, y0 + bh2); ctx.closePath();
-  ctx.fillStyle = (CURSE[e.cast] || CURSE.pig).color; ctx.globalAlpha = k * .85; ctx.fill(); ctx.globalAlpha = k;
+  ctx.fillStyle = spOf(e.k).color || (CURSE[e.cast] || CURSE.pig).color; ctx.globalAlpha = k * .85; ctx.fill(); ctx.globalAlpha = k;
   ctx.lineWidth = Math.max(3, H * .006); ctx.strokeStyle = '#1d0d00'; ctx.stroke(); ctx.clip();
   if (hd) { const [cv] = hd, hh = bh2 * 1.25, w = cv.width * hh / cv.height, x = left ? W * .14 : W * .86 - w; ctx.drawImage(cv, x, y0 - H * .07, w, hh); }
   label(String((spOf(e.k).name || '')).toUpperCase().slice(0, 24), left ? W * .62 : W * .38, y0 + bh2 * .62, Math.min(H * .07, W * 1.1 / 24), 'center', '#1d0d00');
@@ -2038,13 +2192,14 @@ function pack() {
     sp: S.players.map(p => q2(p.sp || 0)), mx: q2(S.matrix || 0), mt: q2(S.matrixT0 || 0), ma: q2(S.matrixA || 1), gd: S.players.map(p => q2(p.guard ?? 1)),
     ci: S.cutin ? [S.cutin.e.id, q2(S.cutin.t)] : 0, dm: S.dimBy && S.freeze > 0 ? S.dimBy.id : 0,
     ct: S.players.map(p => p.state === 'cast' && p.castX != null ? [q3(p.castX), q3(p.castZ), CURSES.indexOf(p.cast)] : 0), nt: S.neoT > 0 && S.neo ? [S.neo.id, q2(S.neoT)] : 0,
-    es: S.players.map(p => p.esc ? [q3(p.esc.x), q3(p.esc.z), p.esc.dir] : 0), dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
+    es: S.players.map(p => p.esc ? [q3(p.esc.x), q3(p.esc.z), p.esc.dir, q3(p.esc.run || .26)] : 0), dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
     P: S.people.filter(e => !e.gone).map(e => [e.id, e.k === 'photog' ? -1 : e.k, ROLES.indexOf(e.role), q3(e.x), q3(e.z), q2(e.y), e.face,
       STATES.indexOf(e.state), q2(e.st), Math.round(e.hp), q2(e.rot), e.item ? THINGS.indexOf(e.item.type) : e.prop ? 20 + THINGS.indexOf(e.prop) : -1,
       e.item ? e.item.ammo : 0, MOVE_KEYS.findIndex(k => MOVES[k] === e.move),
-      (e.flash > 0) | (e.run << 1) | ((e.cheer > 0) << 2) | ((e.aimT > 0) << 3) | (e.threw << 4) | ((e.state === 'walk' || e.state === 'horse') << 5) | ((e.vy > 0 && !!e.remote && e.remote[2] < .02) << 6) | (!!e.xEyes << 7),
+      (e.flash > 0) | (e.run << 1) | ((e.cheer > 0) << 2) | ((e.aimT > 0) << 3) | (e.threw << 4) | ((e.state === 'walk' || e.state === 'horse') << 5) | ((e.vy > 0 && !!e.remote && e.remote[2] < .02) << 6) | (!!e.xEyes << 7) | ((e.chair === 1) << 8) | ((e.chair === 2) << 9) | (!!e.cig << 10),
       e.say ? e.say.text : 0, e.curse ? CURSES.indexOf(e.curse) : -1,
-      e.curse === 'spoon' ? q2(e.finBend ?? (e.bendAt ? .7 * Math.max(0, 1 - (S.t - e.bendAt) / .4) : 0)) : 0]),
+      e.curse === 'spoon' ? q2(e.finBend ?? (e.bendAt ? .7 * Math.max(0, 1 - (S.t - e.bendAt) / .4) : 0)) : 0,
+      e.curse && e.curseBy && typeof e.curseBy.k === 'number' ? e.curseBy.k : -1]),
     I: S.items.filter(i => !i.held).map(i => [THINGS.indexOf(i.type), q3(i.x), q3(i.z), q2(i.y), i.ammo]),
     X: S.shots.map(s => [THINGS.indexOf(s.type), q3(s.x), q3(s.z), q2(s.y), Math.sign(s.vx), q2(s.spin % TAU)]),
     U: S.puddles.slice(-14).map(p => [q3(p.x), q3(p.z), q3(p.r), WET.indexOf(p.kind), q2(p.life)]),
@@ -2073,7 +2228,7 @@ function unpack(d) {
   S.cutin = Array.isArray(d.ci) && S.byId.get(d.ci[0]) ? { e: S.byId.get(d.ci[0]), t: clamp(+d.ci[1] || 0, 0, 2) } : null;
   S.dimBy = d.dm ? S.byId.get(d.dm) || null : null; if (S.dimBy) S.freeze = .05;
   if (Array.isArray(d.nt)) { S.neo = S.byId.get(d.nt[0]) || null; S.neoT = clamp(+d.nt[1] || 0, 0, 9); if (S.neoT > 0) glyphs(); } else S.neoT = 0;
-  if (Array.isArray(d.es)) S.players.forEach((p, i) => { const q = d.es[i]; p.esc = Array.isArray(q) ? { x: +q[0] || 0, z: +q[1] || 0, dir: q[2] < 0 ? -1 : 1 } : null; });
+  if (Array.isArray(d.es)) S.players.forEach((p, i) => { const q = d.es[i]; p.esc = Array.isArray(q) ? { x: +q[0] || 0, z: +q[1] || 0, dir: q[2] < 0 ? -1 : 1, run: clamp(+q[3] || .26, .1, .4) } : null; });
   if (was !== S.phase && S.phase === 'intro') S.fx = [];
   const seen = new Set(), fighters = [];
   for (const a of d.P.slice(0, 40)) {
@@ -2093,8 +2248,12 @@ function unpack(d) {
     }
     if (hp < e.hp) e.hurtAt = S.t;
     e.hp = hp; e.trot = rot; e.curse = CURSES[a[16]] || null;
+    if (e.curse && Number.isInteger(a[18]) && a[18] >= 0) { const sp = spOf(a[18]); e.curseSp = sp.type === e.curse ? sp : {}; } else if (!e.curse) e.curseSp = null;
     if (local && (flags & 64) && e.y < .02 && y > .02) { e.y = y; e.vy = Math.max(e.vy || 0, 1.2); }  // the host started a jump for me (after an uppercut): fly it
     e.finBend = e.curse === 'spoon' ? clamp(+a[17] || 0, 0, 2) : undefined; e.xEyes = !!(flags & 128);
+    e.chair = flags & 256 ? 1 : flags & 512 ? 2 : 0;
+    if (e.role === 'photog' && e.chair) camOff(e);
+    if ((flags & 1024) && !e.cig) e.smokeT0 = S.t; e.cig = !!(flags & 1024);
     e.item = thing >= 0 && thing < 20 ? { type: THINGS[thing], ammo } : null; e.prop = thing >= 20 ? THINGS[thing - 20] : null;
     e.move = MOVES[MOVE_KEYS[mv]] || null;
     e.flash = flags & 1 ? .05 : 0; e.run = !!(flags & 2); e.cheer = flags & 4 ? .1 : 0; e.aimT = flags & 8 ? .05 : 0; e.threw = !!(flags & 16); e.moving = !!(flags & 32);
@@ -2145,6 +2304,7 @@ function replay(ev) {
   else if (kind === 'v') { const e = S.byId.get(a[0]); if (e) talk(e, String(a[1])); }
   else if (kind === 'f') fx({ k: 'flash', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), face: a[2] < 0 ? -1 : 1, r: n(a[3], 0, 3, 1) * unit(), life: .35, max: .35 });
   else if (kind === 'd') fx({ k: 'dmg', text: String(a[0]).slice(0, 6), x: n(a[1], -1, 2, 0) * W, y: fromF(n(a[2], -9, 9, 0)), size: n(a[3], 0, .2, .05) * H, color: String(a[4]).slice(0, 9), life: .8, max: .8 });
+  else if (kind === 'o') fx({ k: 'smoke', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), r: n(a[2], 0, 1, .03) * unit(), life: 2.2, max: 2.2, drift: 0 });
   else if (kind === 'b') fx({ k: 'burst', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), r: n(a[2], 0, 3, 1) * unit(), color: String(a[3]).slice(0, 9), life: .5, max: .5 });
 }
 function replica(dt) {  // the online guest's frame: no game logic, just easing toward the host's picture and moving my own fighter
@@ -2318,6 +2478,8 @@ async function start(pair, opts = {}) {
   S = null;
   const ph = new Image(); if (window.PHOTOG) ph.src = window.PHOTOG;
   photogImg = window.PHOTOG ? await ph.decode().then(() => ph, () => null) : null;
+  const ph2 = new Image(); if (window.PHOTOG_NOCAM) ph2.src = window.PHOTOG_NOCAM;  // the same Moshik with his camera put away, for after the match
+  photogNoCam = window.PHOTOG_NOCAM && window.PHOTOG_NOCAM_RIG ? await ph2.decode().then(() => ph2, () => null) : null;
   await Promise.race([Promise.all(['40px Bungee', '20px "Press Start 2P"'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 1500))]).catch(() => {});
   if (!live()) return;  // stopped (Esc, Leave, another start) while loading
   if (net && net.role === 'guest') {

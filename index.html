@@ -91,6 +91,19 @@
   #cog svg { width: 24px; height: 24px; fill: currentColor; }
   #cog:hover, #cog:focus-visible { background: rgba(24, 18, 12, .85); }
   #tilt { left: calc(16px + env(safe-area-inset-left, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  /* fat retro arrows at the edge the pointer rests on: the photo keeps sliding that way */
+  .edge-arrow { position: absolute; z-index: 4; width: clamp(60px, 13cqh, 120px); aspect-ratio: 1; pointer-events: none; opacity: 0; transition: opacity .18s;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff6b0'/%3E%3Cstop offset='.45' stop-color='%23ffd23f'/%3E%3Cstop offset='1' stop-color='%23ff7b00'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M8 34h44V10l40 40-40 40V66H8z' fill='%231d0d00' transform='translate(3 6)'/%3E%3Cpath d='M8 34h44V10l40 40-40 40V66H8z' fill='url(%23g)' stroke='%231d0d00' stroke-width='6' stroke-linejoin='round'/%3E%3Cpath d='M16 41h40V27' fill='none' stroke='%23fffbe0' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' opacity='.85'/%3E%3C/svg%3E") center / contain no-repeat; }
+  .edge-arrow.on { opacity: 1; }
+  .edge-arrow.right { right: 1.5cqw; top: 50%; translate: 0 -50%; }
+  .edge-arrow.left { left: var(--left-edge, 1.5cqw); top: 50%; translate: 0 -50%; rotate: 180deg; }
+  .edge-arrow.up { top: 1.5cqh; left: var(--mid, 50%); translate: -50% 0; rotate: -90deg; }
+  .edge-arrow.down { bottom: 1.5cqh; left: var(--mid, 50%); translate: -50% 0; rotate: 90deg; }
+  .edge-arrow.on.right { animation: nudge-r .45s ease-in-out infinite alternate; } .edge-arrow.on.left { animation: nudge-l .45s ease-in-out infinite alternate; }
+  .edge-arrow.on.up { animation: nudge-u .45s ease-in-out infinite alternate; } .edge-arrow.on.down { animation: nudge-d .45s ease-in-out infinite alternate; }
+  @keyframes nudge-r { to { transform: translateX(10px) scale(1.08); } } @keyframes nudge-l { to { transform: translateX(10px) scale(1.08); } }
+  @keyframes nudge-u { to { transform: translateX(10px) scale(1.08); } } @keyframes nudge-d { to { transform: translateX(10px) scale(1.08); } }
+  @media (prefers-reduced-motion: reduce) { .edge-arrow.on { animation: none !important; } }
   #hint { left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: calc(100% - 160px); padding: 6px 14px; border-radius: 999px;
     font-size: 13px; text-align: center; pointer-events: none; opacity: .9; transition: opacity .8s, visibility .25s; text-wrap: balance; }
   #hint.gone { opacity: 0; }
@@ -118,6 +131,8 @@
     <div class="brawl-bar"><span>P1: WASD move · X punch · C kick · V grab/throw · Z jump — P2: IJKL move · , punch · . kick · / grab/throw · M jump · Controllers: press any button to join · Sounds: Kenney &amp; OpenGameArt (CC0), crowd by Gregor Quendel (CC BY 4.0)</span><button id="brawl-quit">Leave</button></div>
   </div>
   <div id="hint" class="hud">Move the mouse to look around · click a guest</div>
+  <div class="edge-arrow left" aria-hidden="true"></div><div class="edge-arrow right" aria-hidden="true"></div>
+  <div class="edge-arrow up" aria-hidden="true"></div><div class="edge-arrow down" aria-hidden="true"></div>
   <button id="tilt" class="hud" hidden>Enable tilt</button>
   <button id="cog" class="hud" aria-label="Settings" title="Settings (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.49.49 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
 </div></main>
@@ -129,6 +144,7 @@
 <script src="fighters.js" async></script>
 <script src="ballroom.js" async></script>
 <script src="stages.js" async></script>
+<script src="props.js" async></script>
 <script src="rigs.js"></script>
 <script src="puppet.js"></script>
 <script src="photog.js" async></script>
@@ -246,7 +262,7 @@ const hedge = relief(fg, pixels(fgDepth), true);
 hedge.renderOrder = 1e4;
 scene.add(hedge);
 
-let pan = 0, ptrX = .5;  // pan: how far the view window has slid along the photo for picking a rival (world units, negative = toward its left side)
+let pan = 0, ptrX = .5, ptrY = .5, ptrIn = false;  // pan: how far the view window has slid along the photo for picking a rival (world units, negative = toward its left side)
 // Cover-fit: the photo fills the canvas at any aspect and the overflow is cropped. hw/hh = half the window on the picture plane; slx/sly = how far
 // it can slide over the photo (the crop), which the pointer, a tilt or a finger drag steers through `cur`.
 let cw = 1, ch = 1, hw = A / OVERSCAN, hh = 1 / OVERSCAN, slx = 0, sly = 0, swayK = 1;
@@ -274,7 +290,7 @@ function aim(x, y) { target.set(clamp(x), clamp(y)); last = performance.now(); }
 addEventListener('pointermove', e => {
   if (e.pointerType === 'touch') return;  // a finger drags the photo (below); steering by pointer position and edge-scroll are the mouse's
   const r = canvas.getBoundingClientRect();
-  ptrX = (e.clientX - r.left) / r.width;
+  ptrX = (e.clientX - r.left) / r.width; ptrY = (e.clientY - r.top) / r.height; ptrIn = ptrX >= 0 && ptrX <= 1 && ptrY >= 0 && ptrY <= 1;
   aim((e.clientX - r.left) / r.width * 2 - 1, 1 - (e.clientY - r.top) / r.height * 2);
 });
 // touch: the photo follows the finger. A tap (under 10px of travel) is left alone and arrives as a click; a drag must not click on release.
@@ -434,13 +450,32 @@ if (document.fonts) { document.fonts.ready.then(fitNames); document.fonts.addEve
 let chose = false;
 const backOut = x => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
 let lastNow = 0;
+addEventListener('pointerout', e => { if (!e.relatedTarget) ptrIn = false; });  // the mouse left the window
+const arrows = Object.fromEntries(['left', 'right', 'up', 'down'].map(d => [d, document.querySelector('.edge-arrow.' + d)]));
+let arrowState = '';
+function edgeArrows(pick1) {  // which edge the mouse rests on, if the photo can still slide that way (rival pick: the open right half)
+  const lx = pick1 ? .5 : 0, mouse = ptrType !== 'touch' && ptrIn && !window.brawling && !document.querySelector('#settings:not([hidden]), #lobby:not([hidden])');
+  const on = {
+    left: mouse && ptrX < lx + .12 && (pick1 ? pan > farPan() + .01 : slx > .01 && cur.x > -.97),
+    right: mouse && ptrX > .88 && (pick1 ? pan < -.01 : slx > .01 && cur.x < .97),
+    up: mouse && ptrY < .12 && ptrX > lx && sly > .01 && cur.y < .97,
+    down: mouse && ptrY > .88 && ptrX > lx && sly > .01 && cur.y > -.97,
+  };
+  const key = Object.values(on).join() + pick1;
+  if (key === arrowState) return;
+  arrowState = key;
+  for (const d in on) arrows[d].classList.toggle('on', on[d]);
+  document.querySelector('.stage').style.setProperty('--left-edge', pick1 ? 'calc(50% + 1.5cqw)' : '1.5cqw');
+  document.querySelector('.stage').style.setProperty('--mid', pick1 ? '75%' : '50%');
+}
 renderer.setAnimationLoop(now => {
   const dt = Math.min(.05, (now - lastNow) / 1000 || 0); lastNow = now;
   // picking player 2 while player 1's panel covers the left half: point near either edge of the open part to slide the photo
   const pick1 = choosing();
   if (pick1 && ptrX > .5) pan = Math.max(farPan(), Math.min(0, pan + (ptrX < .62 ? -(.62 - ptrX) / .12 : ptrX > .9 ? (ptrX - .9) / .1 : 0) * 1.8 * dt));  // mouse edge-scroll (a finger drags instead)
   else if (!pick1) pan *= Math.pow(.02, dt);
-  swayK += ((pick1 ? 0 : 1) - swayK) * Math.min(1, dt * 6);  // while picking a rival the pan above owns the sideways slide
+  swayK += ((pick1 ? 0 : 1) - swayK) * Math.min(1, dt * 6);
+  edgeArrows(pick1);  // while picking a rival the pan above owns the sideways slide
   flaps.forEach((f, k) => { const u = f.children[0].material.uniforms, mine = pick1 && k === picked[0];
     u.tint.value.setRGB(mine ? 1 : 0, mine ? .3 : 0, mine ? .23 : 0); u.opacity.value = mine ? .95 : .35; });
   if (window.brawling) return;  // the ballroom has the stage

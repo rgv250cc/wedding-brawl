@@ -115,7 +115,8 @@ check(!missing.length, 'every curse lands and plays', missing.length ? 'missing 
 // Moses bends the spoon: cast spoon, then hit it
 await setup(.05);
 await p.evaluate(() => { const S = Brawl.state, [a, c] = S.players; Object.assign(a, { cast: 'spoon', state: 'cast', st: .44, done: false, castX: c.x, castZ: c.z }); c.immuneT = 0; });
-await p.waitForTimeout(900); await tap('j', 0); await p.waitForTimeout(200);
+await p.waitForTimeout(900); await p.evaluate(() => { const [a, c] = Brawl.state.players; c.x = a.x + .06; c.z = a.z; c.y = 0; c.wander = Math.PI / 2; c.inp = {}; });  // it hops about: put it back in reach
+await tap('j', 0); await p.waitForTimeout(200);
 const bent = await p.evaluate(() => { const c = Brawl.state.players[1]; return [c.curse, !!c.bendAt, c.curseHits]; });
 check(bent[0] === 'spoon' && bent[1] && bent[2] === 1, 'hitting the spoon bends it (and it stays a spoon)', JSON.stringify(bent));
 await p.screenshot({ path: '/tmp/curse-bent.png' });

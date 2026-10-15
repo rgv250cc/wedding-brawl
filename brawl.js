@@ -14,10 +14,17 @@ const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.f
 const q2 = v => Math.round(v * 100) / 100, q3 = v => Math.round(v * 1000) / 1000;
 const FLOOR = [0.37, 0.97];  // walkable band of the ballroom picture: back and front edge, as fractions of its height
 const HP = 112, ROUND_SECONDS = 60, CROWD = 7;  // guests on the floor at once; with the photographer, 8 bystanders
+const WALK = .42, WALK_BACK = .34, ZWALK = .35, RUN = 1.9, RUN_HOLD = .18;  // floor widths (depths) a second: forward, backing off, in depth; running; hold to run
+const REACH = 1.5, REACHES = { jab: .09, cross: .10, upper: .07, low: .12, snap: .11, round: .13, spin: .12, dropkick: .18 };  // floor widths
+const ROLLS = {  // dodges: seconds, distance, and the stretch of it that can't be hit (never the first frames)
+  fwd: { t: .45, d: .20, safe: [.05, .25] }, back: { t: .55, d: .15, safe: [.08, .28] }, side: { t: .25, d: .12, safe: null }, chase: { t: .15, d: .10, safe: null } };
+const TAP = .2;  // double-tap window (s)
+const GUARDBAR = { regen: .2 };  // the guard refills this much a second after a second without blocking; empty = GUARD BREAK
+const CAST_T = .55, CAST_HIT = .45;  // a special: the bolt reaches the rival CAST_HIT after the super freeze; the caster is free again soon after
 const LEVELS = [  // CPU ladder: seconds between decisions, attacks per second in reach, speed, damage, odds it jumps a flash
-  { name: 'EASY', think: 1, rate: 2.2, speed: .72, dmg: .75, dodge: 0, block: .05, combo: .25, grab: .03 },  // + odds it blocks, chains, throws
-  { name: 'MEDIUM', think: .55, rate: 4.5, speed: .92, dmg: 1, dodge: .45, block: .2, combo: .6, grab: .1 },
-  { name: 'HARD', think: .3, rate: 8, speed: 1.12, dmg: 1.3, dodge: .9, block: .4, combo: .9, grab: .2 },
+  { name: 'EASY', think: 1, rate: 2.2, speed: .72, dmg: .75, dodge: 0, block: .05, combo: .25, grab: .03, roll: 0 },  // + odds it blocks, chains, throws
+  { name: 'MEDIUM', think: .55, rate: 4.5, speed: .92, dmg: 1, dodge: .45, block: .2, combo: .6, grab: .1, roll: .2 },
+  { name: 'HARD', think: .3, rate: 8, speed: 1.12, dmg: 1.3, dodge: .9, block: .4, combo: .9, grab: .2, roll: .45 },
 ];
 const DROPS = ['fork', 'fork', 'bottle', 'bottle', 'champagne', 'champagne', 'shoe', 'shoe', 'plate'];
 const MOVES = {  // reach in floor widths; t = the whole move, hit = when it lands (s); stun = how long the victim reels, kb = knockback,
@@ -40,9 +47,11 @@ const MOVES = {  // reach in floor widths; t = the whole move, hit = when it lan
   raygun: { dmg: 7, reach: .065, t: .3, hit: .12, stun: .36, kb: .15, word: 'BONK!', snd: 'bonk', pose: 'swing' },
   fist: { dmg: 0, reach: 0, t: .3, hit: .1, word: '', snd: 'swing', pose: 'throw' },  // throwing what's in hand: no blow of its own
 };
-for (const k in MOVES) MOVES[k].key = k;
+for (const k in MOVES) { MOVES[k].key = k; MOVES[k].reach = REACHES[k] || MOVES[k].reach * REACH; }
+MOVES.round.wide = MOVES.spin.wide = 1; MOVES.spin.around = 1;  // they sweep: wide in depth, and a spin kick hits behind too
 // what a landed blow can cancel into (hit-confirm chains): jab > cross > uppercut (launch) or roundhouse; low kick > spin kick
-const CHAIN = { jab: { punch: 'cross', kick: 'snap' }, cross: { punch: 'upper', kick: 'round' }, low: { punch: 'jab', kick: 'spin' }, snap: { punch: 'cross', kick: 'spin' } };
+const CHAIN = { jab: { punch: 'cross', kick: 'snap' }, cross: { punch: 'upper', kick: 'round' }, low: { punch: 'cross', kick: 'snap' }, snap: { punch: 'cross', kick: 'spin' },
+                airp: { punch: 'airp', kick: 'airk' } };  // in the air: a second blow if the first one lands
 const THROWN = { cork: [10, 'POP!', 'thwack'], laser: [12, 'ZAP!', 'zap'], fork: [9, 'POKE!', 'poke'], bottle: [12, 'SMASH!', 'smash'],
                  champagne: [11, 'BONK!', 'bonk'], shoe: [8, 'THWACK!', 'thwack'], plate: [9, 'CRASH!', 'crash'], raygun: [9, 'BONK!', 'bonk'] };
 const CRIES = ['WAAAH!', 'MY DRESS!', 'NOT AT A WEDDING!', 'MOMMY!', 'OW OW OW', 'WHY ME?!', 'MY HAIR!'];
@@ -50,7 +59,7 @@ const GASPS = ['OMG!', 'WOOO!', 'FIGHT! FIGHT!', 'CALL SECURITY!', 'NOT THE CAKE
 const EWW = ['EWW!', 'GROSS!', 'MY SHOES!', 'NOT AGAIN!', 'BLEUGH'];
 const NOPE = ['NO!', 'NOOO!', 'NO PHOTOS!', 'NOT MY BAD SIDE!', 'I LOOK AWFUL!'];
 const SMILE = ['SMILE!', 'SAY CHEESE!', 'LOOK HERE!', 'GORGEOUS!', 'ONE MORE!', 'FOR THE ALBUM!'];
-const DOWN = new Set(['down', 'cry', 'ko', 'slip', 'getup', 'faint', 'flip', 'beam', 'fall', 'grabbed']);  // can't be hit or act
+const DOWN = new Set(['down', 'cry', 'ko', 'slip', 'getup', 'faint', 'flip', 'beam', 'fall', 'grabbed', 'bent']);  // can't be hit or act
 // what the fighters say (subtitles + cartoon blips, no voice). {T} = the other fighter. Each guest's own 1-2 punchlines
 // come from nicknames.js (NICKNAMES[k].lines) and are used at random moments and after a combo.
 const TAUNT = ['{T}, you dance like a folding chair!', 'I\'m gonna toast you, {T}!', 'You\'re going home in a doggy bag!', 'This is MY dance floor!',
@@ -95,22 +104,25 @@ const LOO = SPOTS.find(s => s.key === 'loo'), WATCH = { key: 'watch', act: 'watc
 // Two players on one keyboard: P1 on the left (WASD, X C V, Z), P2 on the right (IJKL, , . /, M).
 const DEFAULT_KEYS = {
   solo: [{ up: ['KeyW', 'ArrowUp'], left: ['KeyA', 'ArrowLeft'], down: ['KeyS', 'ArrowDown'], right: ['KeyD', 'ArrowRight'],
-           punch: ['KeyJ'], kick: ['KeyK'], grab: ['KeyL'], jump: ['Space'] }],
-  duo: [{ up: ['KeyW'], left: ['KeyA'], down: ['KeyS'], right: ['KeyD'], punch: ['KeyX'], kick: ['KeyC'], grab: ['KeyV'], jump: ['KeyZ'] },
-        { up: ['KeyI'], left: ['KeyJ'], down: ['KeyK'], right: ['KeyL'], punch: ['Comma'], kick: ['Period'], grab: ['Slash'], jump: ['KeyM'] }],
+           punch: ['KeyJ'], kick: ['KeyK'], grab: ['KeyL'], jump: ['Space'], special: ['KeyI'] }],
+  duo: [{ up: ['KeyW'], left: ['KeyA'], down: ['KeyS'], right: ['KeyD'], punch: ['KeyX'], kick: ['KeyC'], grab: ['KeyV'], jump: ['KeyZ'], special: ['KeyB'] },
+        { up: ['KeyI'], left: ['KeyJ'], down: ['KeyK'], right: ['KeyL'], punch: ['Comma'], kick: ['Period'], grab: ['Slash'], jump: ['KeyM'], special: ['KeyN'] }],
 };
-const ACTIONS = ['up', 'left', 'down', 'right', 'punch', 'kick', 'grab', 'jump'];
+const ACTIONS = ['up', 'left', 'down', 'right', 'punch', 'kick', 'grab', 'jump', 'special'];
 const copyKeys = k => JSON.parse(JSON.stringify(k));
 let LAYOUT = copyKeys(DEFAULT_KEYS);  // the Controls page (settings.js) remaps these; saved per browser
 try {
   const saved = JSON.parse(localStorage.getItem('brawl-keys'));
+  for (const set of ['solo', 'duo']) if (saved && Array.isArray(saved[set])) saved[set].forEach((m, i) => ACTIONS.forEach(a => {  // a key added since they saved
+    if (m && !m[a] && DEFAULT_KEYS[set][i]) m[a] = DEFAULT_KEYS[set][i][a].slice();
+  }));
   const ok = l => Array.isArray(l) && l.every(m => ACTIONS.every(a => Array.isArray(m[a]) && m[a].length && m[a].every(c => typeof c === 'string' && c.length < 24)));
   if (saved && ok(saved.solo) && ok(saved.duo) && saved.solo.length === 1 && saved.duo.length === 2) LAYOUT = saved;
 } catch {}
 const keyName = c => ({ Space: 'Space', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Backslash: '\\',
   Minus: '-', Equal: '=', Backquote: '`', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'Enter', Tab: 'Tab' })[c]
   || c.replace(/^Key|^Digit|^Numpad/, '').replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, (m, k, s) => `${s === 'Left' ? 'L' : 'R'}-${k === 'Control' ? 'Ctrl' : k}`);
-const helpFor = m => `${['up', 'left', 'down', 'right'].map(a => keyName(m[a][0])).join('')} move · ${keyName(m.punch[0])} punch · ${keyName(m.kick[0])} kick · ${keyName(m.grab[0])} grab/throw · ${keyName(m.jump[0])} jump`;
+const helpFor = m => `${['up', 'left', 'down', 'right'].map(a => keyName(m[a][0])).join('')} move · ${keyName(m.punch[0])} punch · ${keyName(m.kick[0])} kick · ${keyName(m.grab[0])} grab/throw · ${keyName(m.jump[0])} jump · ${keyName(m.special[0])} special · double-tap to roll`;
 const help = two => two ? `P1: ${helpFor(LAYOUT.duo[0])} — P2: ${helpFor(LAYOUT.duo[1])}` : helpFor(LAYOUT.solo[0]);
 const CREDITS = 'Sounds: Kenney & OpenGameArt (CC0), crowd by Gregor Quendel (CC BY 4.0)';
 
@@ -184,7 +196,7 @@ let root, cv, ctx, W = 1, H = 1, S = null, raf = 0, lastT = 0, bg = null, mode =
 let nextId = 1, sentAt = 0, inSeq = 0, startSeq = 0;
 const keys = new Set(), tapped = new Set();  // keys held, and keys pressed since the last frame (a tap shorter than a frame still counts)
 const ctrl = ['cpu', 'cpu'];  // who drives P1 / P2: 'cpu' | 'keys' | 'pad' | 'net' (the online guest)
-const ladder = { beaten: [] }, match = { wins: [0, 0], used: [] };
+const ladder = { beaten: [] }, match = { wins: [0, 0], used: [], sp: [0, 0] };
 const rigs = new Map(), imgs = new Map(), evs = [];
 let evSeq = 0;
 const layout = () => mode === '2p' ? LAYOUT.duo : LAYOUT.solo;
@@ -200,8 +212,15 @@ function useStage(st) {  // switch scene; the picture decodes in the background 
   if (!backdrops.has(st.name)) { const im = new Image(); im.src = st.img; backdrops.set(st.name, im.decode().then(() => im, () => null)); }
   backdrops.get(st.name).then(im => { if (stage === st) bg = im; });
 }
-const feetY = z => H * (stage.floor[0] + z * (stage.floor[1] - stage.floor[0]));
-const tall = z => H * .85 * (stage.tall[0] + (stage.tall[1] - stage.tall[0]) * z);  // a person's height on screen at depth z (0 = back of the floor)
+let pic = { top: 0, h: 1, w: 1, left: 0 }, DPR = 1;  // where the backdrop sits on screen (px); device pixels per CSS pixel
+const coarse = () => matchMedia('(pointer: coarse)').matches;  // a phone or tablet: touch controls
+function fitPic() {  // cover the screen; when the picture is taller than the screen its top goes first, so the front of the floor stays in view
+  const iw = bg ? bg.width : 3, ih = bg ? bg.height : 2, k = Math.max(W / iw, H / ih), h = ih * k;
+  pic = { w: iw * k, h, left: (W - iw * k) / 2, top: clamp(Math.min((H - h) / 2, H * .985 - stage.floor[1] * h), H - h, 0) };
+  pic.front = coarse() ? clamp((H * .76 - pic.top) / h, stage.floor[0] + .2, stage.floor[1]) : stage.floor[1];  // on a phone the floor stops above the thumbs
+}
+const feetY = z => pic.top + pic.h * (stage.floor[0] + z * ((pic.front ?? stage.floor[1]) - stage.floor[0]));
+const tall = z => pic.h * .85 * (stage.tall[0] + (stage.tall[1] - stage.tall[0]) * z * ((pic.front ?? stage.floor[1]) - stage.floor[0]) / (stage.floor[1] - stage.floor[0]));  // a person's height on screen at depth z (0 = back of the floor)
 const logEv = (...a) => { if (net && net.role === 'host') evs.push([++evSeq, performance.now(), ...a]); };  // replayed by the online guest
 const snd = (name, x = .5, o = {}) => {
   logEv('s', name, q2(x), q2(o.pitch || 1), q2(o.vol ?? 1), o.dur || 0);
@@ -251,7 +270,8 @@ function person(k, img, role, x, z) {
   return { id: nextId++, k, img, rig: rigFor(k, img), ang: {}, sink: 0, role, name, x, z, y: 0, vx: 0, vz: 0, vy: 0, face: x < .5 ? 1 : -1,
            hp: HP, state: 'idle', st: 0, item: null, prop: null, cd: 0, rot: 0, flash: 0, think: 0, goal: null, dest: null, task: null,
            transit: null, run: false, cheer: 0, aimT: 0, talk: 0, quipIn: 14 + R() * 12, walkPh: R() * TAU, at: null, thinkT: R(),
-           needs: Object.fromEntries(NEEDS.map(n => [n, .15 + R() * .7])), drunk: R() * .3, brave: R(), party: R(), seed: R() * 9, say: null, inp: {}, prev: {}, move: null, h: 1, X: 0, Y: 0 };
+           needs: Object.fromEntries(NEEDS.map(n => [n, .15 + R() * .7])), drunk: R() * .3, brave: R(), party: R(), seed: R() * 9, say: null, inp: {}, prev: {}, move: null, h: 1, X: 0, Y: 0,
+           sp: 0, guard: 1, curse: null, curseT: 0, comboDmg: 0 };
 }
 function set(e, s) {
   if (e.state === 'drink' && s !== 'drink' && e.prop) {  // the bottle goes down with them: a new weapon on the floor
@@ -307,7 +327,7 @@ function subs(dt) {  // host and guest alike: type the current line, play the sp
 function drawSubs() {
   const s = S.subs[0];
   if (!s) return;
-  const n = Math.min(s.text.length, Math.floor(s.t * 30)), size = H * .03, y = H * .86, p = S.players.indexOf(s.who);
+  const n = Math.min(s.text.length, Math.floor(s.t * 30)), size = H * .03, y = H * (touch.on || coarse() ? .3 : .86), p = S.players.indexOf(s.who);  // on a phone, clear of the thumbs
   const who = s.who.name.toUpperCase() + ': ', text = s.text.slice(0, n);
   ctx.font = `${size}px "Bungee", Impact, sans-serif`;
   const w1 = ctx.measureText(who).width, w2 = ctx.measureText(s.text).width, w = Math.min(W * .94, w1 + w2 + size * 1.4), x = W / 2 - w / 2;
@@ -346,7 +366,7 @@ function attack(e, kind) {  // punch or kick: starts a chain, continues one afte
   if (it && it.ammo > 0 && kind === 'punch' && (it.type === 'champagne' || it.type === 'raygun')) { if (e.cd > 0) return; return it.type === 'champagne' ? fireCork(e) : fireLaser(e); }
   const cur = e.state === 'attack' && e.move, chained = !!(cur && e.hitConfirm);
   let key;
-  if (e.y > .05) { if (e.airDone) return; key = kind === 'kick' ? 'airk' : 'airp'; e.airDone = true; }
+  if (e.y > .05) { if ((e.airN || 0) >= (chained ? 2 : 1)) return; key = kind === 'kick' ? 'airk' : 'airp'; e.airN = (e.airN || 0) + 1; }
   else if (it) key = it.type;
   else if ((e.running || S.t - (e.ranAt ?? -9) < .15) && !chained) key = 'dropkick';  // a short grace: letting go as you kick still counts
   else if (chained && CHAIN[cur.key]) key = CHAIN[cur.key][kind];
@@ -355,41 +375,74 @@ function attack(e, kind) {  // punch or kick: starts a chain, continues one afte
   e.chainN = chained ? (e.chainN || 1) + 1 : 1;
   if (it && e.chainN > 3) return;
   faceFoe(e);
+  if (e.curse === 'cake' && R() < .5) { e.face = -e.face; pop('?!', e, '#fff6e6', .7); }  // cream in the eyes: half the swings go the wrong way
   e.move = MOVES[key]; set(e, 'attack'); e.hitConfirm = false;
-  e.vx = e.move.lunge ? e.face * e.move.lunge : e.vx + e.face * .06;
+  e.vx = e.move.lunge ? e.face * e.move.lunge : e.vx + e.face * (e.move.heavy ? .14 : .1);  // every blow steps in
   snd(e.move.heavy ? 'swingHeavy' : 'swing', e.x, { pitch: e.move.heavy ? .9 : 1.15 });
 }
-function faceFoe(e) {  // a blow turns toward a rival who is close and in the lane, so it's never thrown the wrong way by accident
-  const f = e.role === 'fighter' && S.players.find(p => p !== e);
-  if (f && Math.abs(f.z - e.z) < .08 && Math.abs(f.x - e.x) < .2) e.face = Math.sign(f.x - e.x) || e.face;
+function stepSpeed(e, mx, mz) {  // a little slower backing off than going forward; running nearly doubles it
+  const f = S.players.find(p => p !== e), back = mx && f && Math.sign(mx) !== Math.sign(f.x - e.x);
+  e.vx = mx * (back ? WALK_BACK : WALK) * (e.running ? RUN : 1); e.vz = mz * ZWALK;
 }
+function faceFoe(e, any) {  // a blow turns toward a rival who is close and in the lane, so it's never thrown the wrong way by accident
+  const f = e.role === 'fighter' && S.players.find(p => p !== e);
+  if (f && (any || (Math.abs(f.z - e.z) < .08 && Math.abs(f.x - e.x) < .2))) e.face = Math.sign(f.x - e.x) || e.face;
+}
+function roll(e, [dx, dz], chase) {  // toward: through the rival (a cross-up); away: slower and safer; up/down: a sidestep; after a landed blow: a short chase dash
+  const f = S.players.find(p => p !== e), toward = f ? Math.sign(f.x - e.x) || e.face : e.face;
+  if (!dx && !dz) dx = -toward;  // the ROLL button with the stick at rest: back off
+  const kind = chase ? 'chase' : dz && !dx ? 'side' : dx === toward ? 'fwd' : 'back', k = ROLLS[kind];
+  e.rollStack = S.t - (e.rolledAt ?? -9) < 1 ? Math.min(5, (e.rollStack || 0) + 1) : 0; e.rolledAt = S.t;  // roll after roll: each one slower, safe a bit later
+  const t = k.t * (1 + .08 * e.rollStack);
+  set(e, 'roll'); e.roll = { kind, t, dir: [dx, dz], v: k.d / (t * .9), safe: k.safe && [k.safe[0] + .015 * e.rollStack, k.safe[1]] };
+  e.dodged = false; e.running = false; e.runT = 0; e.buf = null; if (chase) e.chaseN = (e.chaseN || 0) + 1;
+  snd('dash', e.x, { pitch: chase ? 1.5 : 1.2 });
+}
+const untouchable = v => v.state === 'roll' && v.roll && v.roll.safe && v.st >= v.roll.safe[0] && v.st < v.roll.safe[1];
 const canCancel = e => e.state === 'attack' && e.hitConfirm && e.st >= e.move.hit + .03 && (CHAIN[e.move.key] || (e.item && e.move.key === e.item.type));
-function blocks(v, a) {  // hold away from the attacker to block; the CPU blocks by chance, more on harder levels
+function blocks(v, a, m) {  // hold away from the attacker: stops punches and kicks from the front (never a grab); the CPU blocks by chance
   if (v.role !== 'fighter' || a.role !== 'fighter' || v.y > .05 || !['idle', 'walk', 'block'].includes(v.state)) return false;
-  if (isCpu(v)) return v.state === 'block' || R() < (v.lv.block || 0);
-  return (v.inp.mx || 0) * Math.sign(a.x - v.x) < -.3;
+  const away = Math.sign(v.x - a.x);  // roll past someone and "away" flips: their block now faces the wrong way
+  if (isCpu(v)) return (v.state === 'block' || R() < (v.lv.block || 0)) && v.face === -away;
+  if (S.t - (v.sideAt ?? -9) < .1) return Math.abs(v.inp.mx || 0) > .3;  // just crossed over: either way blocks for a moment
+  return (v.inp.mx || 0) * away > .3;
 }
 function block(v, a, m) {
-  v.hp -= Math.min(Math.max(0, v.hp - 1), m.dmg * .15);  // a little chip damage, never the last point
+  const chip = m.heavy ? Math.min(Math.max(0, v.hp - 1), m.dmg * .2) : 0;  // only heavy blows chip, and never the last point
+  v.hp -= chip; v.guard = (v.guard ?? 1) - (2.5 * m.dmg + 5) / 100; v.blockAt = S.t; meter(a, .04);
+  if (v.guard <= 0) {  // worn down: the guard breaks and they reel, wide open
+    v.guard = .5; set(v, 'hit'); v.stunFor = .8; v.vx = Math.sign(v.x - a.x) * .3;
+    pop('GUARD BREAK!', v, '#ff9d1a', 1.2); snd('smash', v.x); S.freeze = Math.max(S.freeze, .12); S.shake = Math.max(S.shake, H * .012);
+    return;
+  }
   set(v, 'block'); v.blockFor = .16 + m.dmg * .012; v.vx = Math.sign(v.x - a.x) * (.15 + m.dmg * .01); v.face = Math.sign(a.x - v.x) || v.face;
-  const [x, y] = at(v, .6, .1); spark(x, y, v.h * .1); pop('BLOCK', v, '#9fd8ff', .8); snd('clonk', v.x, { vol: .6, pitch: 1.3 });
+  const [x, y] = at(v, .6, .1); spark(x, y, v.h * .1); pop('BLOCK', v, v.guard < .35 ? '#ff9d1a' : '#9fd8ff', .8); snd('clonk', v.x, { vol: .6, pitch: 1.3 });
+  if (chip >= .5) dmgNum(v, chip, 'chip');
   S.freeze = Math.max(S.freeze, .035);
 }
 function comboUp(e, v) {  // hits that land while the rival still reels are one combo; each extra hit does a little less
   const going = ['hit', 'launched'].includes(v.state) && S.t - (e.comboT ?? -9) < 1.2;
-  e.comboN = going ? (e.comboN || 1) + 1 : 1; e.comboT = S.t;
+  e.comboN = going ? (e.comboN || 1) + 1 : 1; e.comboT = S.t; if (!going) { e.comboDmg = 0; e.chaseN = 0; }
   if (e.comboN === 3) {
     snd('combo'); pop('COMBO!', e, '#ff6ad5', 1.3); near(e, S.guests, .35).forEach(g => g.cheer = 1.5); S.heat = Math.min(2, S.heat + .2);
     const own = lines(e.k); if (own.length && R() < .5 && !S.subs.length) talk(e, pick(own), { to: v });
   }
   return Math.max(.5, 1 - .1 * (e.comboN - 1));
 }
-function throwFoe(e) {  // grab right next to the rival: a suplex (it can't be blocked)
+function throwFoe(e) {  // grab right next to the rival: a suplex. Beats a block; loses to a blow already on its way (or a roll), and a whiff leaves you open
   const f = S.players.find(p => p !== e);
-  if (!f || e.item || f.y > .05 || DOWN.has(f.state) || Math.abs(f.z - e.z) > .05 || Math.abs(f.x - e.x) > .075) return false;
+  if (!f || e.item || f.y > .05 || DOWN.has(f.state) || ['cursed', 'hit', 'block', 'launched'].includes(f.state) || Math.abs(f.z - e.z) > .05 || Math.abs(f.x - e.x) > .075) return false;  // no throws on someone still reeling
+  if ((f.state === 'attack' && f.move && f.st < f.move.hit + .05) || f.state === 'roll' || f.state === 'cast' || f.state === 'throw') {
+    set(e, 'whiff'); pop('WHIFF', e, '#d0d0d0', .7); snd('swing', e.x, { pitch: .8 }); return true;
+  }
   e.face = Math.sign(f.x - e.x) || e.face; set(e, 'throw'); e.victim = f; set(f, 'grabbed'); f.grabber = e; f.vx = f.vz = 0;
   pop('GOTCHA!', e, '#ffe14d', .8); snd('swingHeavy', e.x);
   return true;
+}
+function tech(v) {  // GRAB right as you're grabbed: you slip out and you both stumble apart
+  const g = v.grabber; v.grabber = null;
+  if (g) { g.victim = null; set(g, 'idle'); g.vx = -g.face * .3; }
+  set(v, 'idle'); v.y = 0; v.vx = (g ? g.face : -v.face) * .3; pop('TECH!', v, '#9fd8ff', 1); snd('clonk', v.x, { pitch: 1.6 });
 }
 function strike(e) {
   const m = e.move;
@@ -398,11 +451,19 @@ function strike(e) {
   swoosh(x, y, e.face, e.h * (m.heavy ? .22 : .16));
   let n = 0;
   for (const v of S.people) {
-    if (v === e || v.gone || DOWN.has(v.state)) continue;
-    const dx = (v.x - e.x) * e.face;
-    if (dx > -.012 && dx < m.reach && Math.abs(v.z - e.z) < .06 && Math.abs(v.y - e.y) < .5) {
-      if (blocks(v, e)) block(v, e, m);
-      else hurt(v, m.dmg * (v.role === 'fighter' ? comboUp(e, v) : 1) * (isCpu(e) ? e.lv.dmg : 1), e.face, m.word, m.snd, m);
+    if (v === e || v.gone || DOWN.has(v.state) || (v.curse === 'escalator' && v.state === 'cursed') || S.t - (v.curseAt ?? -9) < .6) continue;  // a curse's first moment can't be hit
+    const reach = m.reach * (e.curse === 'tiny' ? .6 : 1), dx = (v.x - e.x) * e.face;  // lows miss a jump, and only an uppercut swats one out of the air
+    const high = m.air ? Math.abs(v.y - e.y) < .5 : v.y - e.y < (m.low ? .08 : m.key === 'upper' ? .9 : .32);
+    if ((dx > -.012 || (m.around && dx > -reach)) && dx < reach && Math.abs(v.z - e.z) < (m.wide ? .18 : .06) && high) {  // round and spin kicks sweep wide in depth
+      if (untouchable(v)) { if (!v.dodged) { v.dodged = true; pop('DODGE!', v, '#9fd8ff', .7); } continue; }  // rolled right through it
+      if (blocks(v, e, m)) block(v, e, m);
+      else {
+        const fighter = v.role === 'fighter', counter = fighter && ((v.state === 'attack' && v.move && (v.st < v.move.hit || !v.hitConfirm)) || v.state === 'whiff');
+        let mm = m;
+        if (counter) { mm = { ...m, stun: (m.stun || .3) * 1.5 }; pop('COUNTER!', e, '#F0E442', 1); }  // caught mid-swing: it hurts more
+        if (m.low && fighter && (v.running || v.state === 'roll')) mm = { ...mm, knock: 1, kb: .3, word: 'TRIP!' };  // a low kick trips someone on the move
+        hurt(v, m.dmg * (fighter ? comboUp(e, v) : 1) * (isCpu(e) ? e.lv.dmg : 1) * (e.curse === 'tiny' ? .6 : 1) * (counter ? 1.25 : 1), e.face, mm.word, m.snd, mm, e);
+      }
       e.hitConfirm = true;
       if (++n === 2) break;
     }
@@ -417,8 +478,9 @@ function breakHeld(e) {
   if (it.type === 'bottle') puddle(e.x + e.face * .06, e.z + .01, 'booze');
   pop('SMASH!', e, '#bff3ff'); snd('smash', e.x);
 }
-function hurt(v, dmg, dir, word, sound, m = {}) {
+function hurt(v, dmg, dir, word, sound, m = {}, by = null) {
   if (v.role === 'fighter' && S.phase !== 'fight') return;  // a shot still in the air after the K.O. can't decide it again
+  if (v.role === 'fighter' && S.t - (v.curseAt ?? -9) < .6) return;  // the moment a curse lands, it can't be hit
   v.flash = .12; v.face = -dir; v.vx = dir * (.25 + dmg * .025);
   const [x, y] = at(v, .6); spark(x, y, v.h * .16);
   pop(word, v); S.shake = Math.max(S.shake, dmg * .7 * H / 600);
@@ -431,17 +493,173 @@ function hurt(v, dmg, dir, word, sound, m = {}) {
     if (R() < .25) puddle(v.x, v.z + .01, 'booze');  // there goes their drink
     return;
   }
+  let still = false;  // walk-around curses: half damage, the 2nd hit breaks them; stuck ones break on the 1st (ice shatters for 1.5x)
+  if (v.curse && CURSE[v.curse].g === 'T') {
+    dmg *= .5; still = v.state === 'cursed';
+    if (v.curse === 'spoon') { v.bendAt = S.t; snd('boing', v.x); }  // Moses bends the spoon; it springs back
+    if (++v.curseHits >= 2) { uncurse(v, true); still = false; }
+  } else if (v.curse && CURSE[v.curse].g === 'L') {
+    if (v.curse === 'ice') { dmg *= 1.5; const [x, y] = at(v, .6); spray(x, y, 18, '#dff6ff', dir * H * .3, H * .3, v.h * .014, .7); }
+    uncurse(v, true);
+  }
+  dmgNum(v, dmg, m.launch ? 'launch' : ''); v.hurtAt = S.t;
+  if (by && by.role === 'fighter' && by !== v) {  // the star bar: +1/8 a clean blow, half for the same blow a 3rd time running, nothing off a cursed rival
+    by.sameN = by.lastKey === m.key ? (by.sameN || 0) + 1 : 1; by.lastKey = m.key;
+    meter(by, v.curse ? 0 : by.sameN >= 3 ? .0625 : .125); by.comboDmg = (by.comboDmg || 0) + dmg;
+  }
+  if (v.sp < 1) v.sp = Math.max(0, (v.sp || 0) - .22);  // taking a clean blow costs two pips; a full bar is kept
+  const mine = net ? mySlot() : 0;
+  if (touch.on && navigator.vibrate && (S.players.indexOf(v) === mine || S.players.indexOf(by) === mine)) navigator.vibrate(m.knock || m.launch ? 30 : 12);
   v.hp = Math.max(0, v.hp - dmg); S.heat = Math.min(2, S.heat + .08 + dmg * .005);
   if (dmg >= 12 && R() < .4) snd('cheerSoft', v.x);
   if (v.item && R() < .3) { const it = v.item; v.item = null; Object.assign(it, { held: null, x: v.x, z: v.z, y: .5, vy: 1.5, vx: -dir * .2 }); }
   if (!v.hp) return match.wins[1 - S.players.indexOf(v)] >= 1 ? finishThem(v) : ko(v);  // FINISH THEM! only when this K.O. decides the battle
+  if (still) { v.vx = dir * .25; return; }  // still a pig: it just squeals and slides
   if (m.launch) { set(v, 'launched'); v.vy = m.launch; v.vx = dir * .12; v.juggles = 0; }  // up they go: juggle them
   else if (v.state === 'launched' || v.y > .15) {  // hit in the air: kept up a few times, then down
     v.juggles = (v.juggles || 0) + 1; v.vx = dir * .1;
     if (v.juggles > 3) { set(v, 'down'); v.vy = .5; } else { set(v, 'launched'); v.vy = Math.max(v.vy, 1.4); }
   } else if (m.knock || dmg >= 12) { set(v, 'down'); v.vx = dir * (m.kb || .4); v.vy = .9; }
   else { set(v, 'hit'); v.stunFor = m.stun || .3; v.vx = dir * (m.kb ?? .2); }
+  if (v.curse === 'tiny') v.vx *= 1.3;  // little ones fly further
 }
+// ---- specials: eight blows in a row without being hit fill the star bar; SPECIAL then casts the character's own curse on the rival
+const CURSE = {  // seconds. g = T: walk about but can't act (half damage, the 2nd blow breaks it); L: stuck (mash to shorten it, any blow breaks it);
+  // W: fight on with a handicap; R: a ride nobody can interrupt. Blocking the bolt halves it; afterwards 2 s of immunity
+  pig: { t: 3, g: 'T', word: 'OINK!', color: '#ffb3c7', snd: 'oink' }, chicken: { t: 3, g: 'T', word: 'BAWK!', color: '#fff3c4', snd: 'cluck' },
+  balloon: { t: 3, g: 'T', word: 'PUFF!', color: '#ffd1f0', snd: 'inflate' }, spoon: { t: 2, g: 'T', word: 'THERE IS NO SPOON', color: '#9dffb0', snd: 'matrix' },
+  disco: { t: 2, g: 'L', word: 'GROOVY!', color: '#ff6ad5', snd: 'disco' }, fart: { t: 1.5, g: 'L', word: 'PEE-YEW!', color: '#a8d84a', snd: 'fart' },
+  smooch: { t: 2, g: 'L', word: 'MWAH!', color: '#ff4d6d', snd: 'smooch' }, ice: { t: 2, g: 'L', word: 'BRRR!', color: '#bfeaff', snd: 'freeze' },
+  tiny: { t: 4, g: 'W', word: 'SQUEAK!', color: '#c9f0ff', snd: 'shrink' }, dizzy: { t: 3.5, g: 'W', word: 'WHICH WAY?!', color: '#ffe14d', snd: 'daze' },
+  cake: { t: 3, g: 'W', word: 'SPLAT!', color: '#fff6e6', snd: 'splat' }, escalator: { t: 3.2, g: 'R', word: 'GOING DOWN!', color: '#d9e3ea', snd: 'escalator' },
+};
+const CURSES = Object.keys(CURSE);
+const spOf = k => (window.NICKNAMES && window.NICKNAMES[k] && window.NICKNAMES[k].sp) || { type: CURSES[(k | 0) % 10], name: 'SPECIAL MOVE', shout: 'Take THIS!' };
+const GLYPHS = [0x13000, 0x13008, 0x1300A, 0x13010, 0x13020, 0x1302F, 0x13041, 0x13050, 0x13062, 0x1307D, 0x13080, 0x13087, 0x1308F, 0x1309D, 0x130A7,
+  0x130B8, 0x130C0, 0x130D2, 0x130ED, 0x130F9, 0x13116, 0x13140, 0x13153, 0x13171, 0x13183, 0x13193, 0x1319B, 0x131A3, 0x131CB, 0x131CC, 0x131EF,
+  0x13216, 0x13250, 0x13283, 0x13296, 0x132AA, 0x132B9, 0x132F4, 0x132F9, 0x13319, 0x1333B, 0x13362, 0x13377, 0x13393, 0x133BF, 0x133CF, 0x133E4, 0x13402]
+  .map(c => String.fromCodePoint(c));
+const HIERO = '"Noto Sans Egyptian Hieroglyphs", "Segoe UI Historic", serif';
+let glyphSheet = null;
+function glyphs() {  // the rain's glyphs drawn once (white heads, green tails), from Google Fonts' hieroglyphs (just these ones); katakana if they never come
+  if (glyphSheet || glyphs.busy) return glyphSheet;
+  glyphs.busy = true;
+  const make = () => {
+    if (glyphSheet) return;
+    const ok = document.fonts.check('40px "Noto Sans Egyptian Hieroglyphs"', GLYPHS[0]);
+    const set = ok ? GLYPHS : Array.from('ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜ'), cs = 48;
+    const c = Object.assign(document.createElement('canvas'), { width: cs * set.length, height: cs * 2 }), g = c.getContext('2d');
+    g.font = `${cs * .78}px ${ok ? HIERO : 'monospace'}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    set.forEach((ch, i) => { for (const [row, col, blur] of [[0, '#eaffef', 10], [1, '#00ff66', 6]]) { g.shadowColor = col; g.shadowBlur = blur; g.fillStyle = col; g.fillText(ch, i * cs + cs / 2, row * cs + cs / 2); } });
+    glyphSheet = { c, n: set.length, cs };
+  };
+  const l = document.getElementById('hiero-font') || Object.assign(document.createElement('link'), { id: 'hiero-font', rel: 'stylesheet',
+    href: 'https://fonts.googleapis.com/css2?family=Noto+Sans+Egyptian+Hieroglyphs&display=swap&text=' + encodeURIComponent(GLYPHS.join('')) });
+  const load = () => document.fonts.load('40px "Noto Sans Egyptian Hieroglyphs"', GLYPHS.join('')).then(make, make);
+  l.onload = load; l.onerror = make; if (!l.isConnected) document.head.append(l);
+  setTimeout(make, 4000);
+  return null;
+}
+function meter(e, amt) {  // the star bar
+  if (e.sp >= 1) return;
+  e.sp = Math.min(1, (e.sp || 0) + amt);
+  if (e.sp >= 1) { pop('SPECIAL READY!', e, '#ff6ad5', 1.1); snd('special', e.x); }
+}
+function dmgNum(v, dmg, kind) {  // the damage each blow does: pops up big over whoever took it, on alternate sides, settles, rises, fades
+  const n = Math.round(dmg);
+  if (n < 1 || v.role !== 'fighter') return;
+  v.dmgLane = ((v.dmgLane || 0) + 1) % 2;
+  const [x, y] = at(v, 1.12, v.dmgLane ? .22 : -.22), size = Math.max(18 * DPR, H * Math.min(.1, .04 + .005 * n));
+  dmgFx(n + (kind === 'launch' ? '!' : ''), x, y, size, kind === 'chip' ? '#b8c2cc' : kind === 'special' ? '#CC79A7' : kind === 'launch' ? '#F0E442' : '#ffffff');
+}
+function dmgFx(t, x, y, size, color) {
+  logEv('d', t, q3(x / W), q3(y / H), q3(size / H), color);
+  const all = S.fx.filter(f => f.k === 'dmg'); if (all.length >= 6) S.fx.splice(S.fx.indexOf(all[0]), 1);
+  fx({ k: 'dmg', text: String(t), x, y, size, color, life: .8, max: .8 });
+}
+function special(e) {  // cast: a super freeze and a banner so everyone sees it coming; the curse lands CAST_HIT later
+  if ((e.sp || 0) < 1) return;
+  const f = S.players.find(p => p !== e), s = spOf(e.k);
+  if (!f) return;
+  e.sp = 0; set(e, 'cast'); e.cast = s.type; e.face = Math.sign(f.x - e.x) || e.face; e.vx = e.vz = 0; e.castX = f.x; e.castZ = f.z;  // the bolt heads where they stand now
+  S.freeze = Math.max(S.freeze, .4); S.dimBy = e; S.cutin = { e, t: 1.1 };  // super freeze: the room darkens, the caster's face cuts in
+  S.banner = String(s.name).toUpperCase().slice(0, 24); S.sub = `${e.name.toUpperCase()}'S SPECIAL`; S.bannerT = 1.5;
+  const [x, y] = at(e, .6); burst(x, y, e.h * 1.2, CURSE[s.type] ? CURSE[s.type].color : '#ff6ad5');
+  snd('special', e.x); if (s.shout) talk(e, s.shout, { to: f });
+  if (s.type === 'spoon') neo(e, 3.8, .6);
+}
+function neo(e, t, a = 1) { S.neo = e; S.neoT = t; S.matrix = S.matrixT0 = t + .4; S.matrixA = a; snd('matrix'); glyphs(); }  // Moses: glows like Neo while hieroglyphs rain
+function castHit(e) {  // the bolt arrives where the rival stood: jumping, rolling or stepping out of its lane dodges it; blocking halves it
+  const f = S.players.find(p => p !== e);
+  if (!f || S.phase !== 'fight') return;
+  if (f.gone || DOWN.has(f.state) || untouchable(f) || f.y > .1 || Math.abs(f.z - e.castZ) > .08 || S.t < (f.immuneT || 0) || f.state === 'cursed') {
+    pop('MISSED!', f, '#9fd8ff', 1.1); e.sp = .4; set(e, 'whiff'); e.st = .05; return;  // a miss leaves the caster open, with some of the bar back
+  }
+  const blocked = f.state === 'block' || (isCpu(f) ? R() < (f.lv.block || 0) : (f.inp.mx || 0) * Math.sign(f.x - e.x) > .3);
+  curseOn(f, e.cast, e, blocked);
+}
+function curseOn(v, type, by, halved) {
+  const c = CURSE[type] || CURSE.pig;
+  if (v.curse) uncurse(v);
+  if (v.item) { const it = v.item; v.item = null; Object.assign(it, { held: null, x: v.x, z: v.z, y: .5, vy: 1.2, vx: 0 }); }
+  v.curse = type; v.curseT = c.t * (halved ? .5 : 1); v.curseBy = by; v.buf = null; v.curseAt = S.t; v.curseHits = 0; v.bendAt = null;
+  if (halved) pop('HALF BLOCKED!', v, '#9fd8ff', .8);
+  v.hp = Math.max(1, v.hp - 5); dmgNum(v, 5, 'special'); if (v.sp < 1) v.sp = Math.max(0, (v.sp || 0) - .22);
+  if (c.g !== 'W') { set(v, 'cursed'); v.vx = v.vz = 0; v.face = Math.sign(by.x - v.x) || v.face; }
+  S.freeze = Math.max(S.freeze, .12);  // the puff hides the swap
+  if (type === 'fart') for (const g of near(v, S.guests, .32)) { say(g, pick(EWW)); g.dest = { x: clamp(g.x + Math.sign(g.x - v.x || 1) * .3, .05, .95), z: g.z }; }
+  if (type === 'escalator') v.esc = { x: v.x, z: v.z, dir: Math.sign(v.x - by.x) || 1 };
+  const [x, y] = at(v, .6); spray(x, y, 24, c.color, 0, H * .35, v.h * .015, .7);
+  pop(c.word, v, c.color, 1.3); snd(c.snd, v.x); S.shake = Math.max(S.shake, H * .01);
+}
+function uncurse(v, broken) {
+  const c = v.curse;
+  if (!c || v.keepCurse) return;
+  v.curse = null; v.curseT = 0; v.esc = null; v.immuneT = S.t + 2; v.bendAt = null;  // a while before the next one can land
+  if (v.state === 'cursed') set(v, c === 'balloon' && !broken ? 'fall' : c === 'escalator' ? 'getup' : 'idle');
+  const [x, y] = at(v, .6); spray(x, y, 16, c === 'ice' ? '#dff6ff' : '#ffffff', 0, H * .3, v.h * .015, .6);
+  if (c === 'spoon') { const [x, y] = at(v, .6); burst(x, y, v.h * .8, '#00ff66'); }  // it straightens and bursts into glyphs
+  pop(c === 'ice' ? 'CRACK!' : c === 'balloon' ? (broken ? 'POP!' : 'PFFFFT!') : 'POOF!', v, '#fff', 1); snd(c === 'ice' ? 'crack' : c === 'balloon' ? (broken ? 'pop' : 'fart') : 'pop', v.x);
+}
+function curseTick(e, n, dt) {  // every frame on a cursed fighter (host)
+  if (e.keepCurse || S.phase === 'finish') return;
+  if ((e.curseT -= dt) <= 0 || S.phase !== 'fight') return uncurse(e);
+  if (e.curse === 'dizzy' && ctrl[S.players.indexOf(e)] !== 'net') { n.mx = -(n.mx || 0); n.mz = -(n.mz || 0); if (n.roll) n.roll = n.roll.map(v => -v); }  // left is right
+  if (CURSE[e.curse].g === 'L' && BTN.some(k => n[k])) e.curseT = Math.max(e.curseT - .07, 1.2 - (S.t - e.curseAt));  // mash to break free sooner (never under 1.2 s)
+  if (e.state === 'cursed') { BTN.forEach(k => n[k] = false); n.roll = null; }
+}
+function curseMove(e, dt) {  // what a helpless victim does while it lasts
+  const c = e.curse, foe = S.players.find(p => p !== e);
+  if (!c) return set(e, 'idle');
+  if (c === 'pig' || c === 'chicken' || c === 'spoon') {  // the victim steers (a little faster; a spoon only hops along); left alone, it waddles about
+    const n = e.inp, k = c === 'spoon' ? .5 : 1.2;
+    if (n.mx || n.mz) { e.vx = (n.mx || 0) * WALK * k; e.vz = (n.mz || 0) * ZWALK * k; if (n.mx) e.face = Math.sign(n.mx); }
+    else {
+      if (e.wander === undefined || R() < dt * 1.2) e.wander = R() * TAU;
+      e.vx = Math.cos(e.wander) * WALK * .45 * k; e.vz = Math.sin(e.wander) * ZWALK * .4 * k; if (Math.abs(e.vx) > .01) e.face = Math.sign(e.vx);
+      if (e.x < .08 || e.x > .92) e.wander = e.x < .5 ? 0 : Math.PI;
+    }
+    if ((c === 'chicken' || c === 'spoon') && !e.y && R() < dt * (c === 'spoon' ? 3 : 2)) e.vy = c === 'spoon' ? .8 : 1.3;  // flap-hop / boing
+    if (c !== 'spoon' && R() < dt * 1.1) { pop(CURSE[c].word, e, CURSE[c].color, .8); snd(CURSE[c].snd, e.x); }
+  } else if (c === 'smooch' && foe) {  // drifts dreamily after whoever kissed them
+    const dx = foe.x - e.x; e.vx = Math.abs(dx) > .07 ? Math.sign(dx) * WALK * .3 : 0; e.vz = (foe.z - e.z) * .5; e.face = Math.sign(dx) || e.face;
+    if (R() < dt * 1.5) pop('♥', e, '#ff4d6d', .9);
+  } else if (c === 'balloon') {  // puffs up, floats off the floor, drifts where they steer at half speed
+    e.vy = 0; e.y += ((e.st > .6 ? .6 : 0) - e.y) * Math.min(1, dt * 2.5);
+    e.vx = (e.inp.mx || 0) * WALK * .5 + Math.sin(e.st * 2.3) * .03; e.vz = (e.inp.mz || 0) * ZWALK * .5;
+  }
+  else if (c === 'escalator' && e.esc) {  // up on top, shoved, bumping down every step, then a tumble across the floor
+    const s = e.esc, st = e.st, run = .26;
+    if (st < .5) { e.x = s.x; e.y = Math.min(1, st * 2.4) * .95; e.vx = e.vz = 0; }
+    else if (st < 1.7) { const p = (st - .5) / 1.2; e.x = clamp(s.x + s.dir * run * p, .04, .96); e.y = .95 * (1 - p) + .05 * Math.abs(Math.sin(p * 18)); e.vx = 0; }
+    else { e.y = 0; e.vx = s.dir * .5 * Math.max(0, 1 - (st - 1.7) / 1.1); }
+    e.vy = 0; e.vz = 0;
+    if (st > .5 && st < 1.7 && Math.floor(st * 10) !== Math.floor((st - dt) * 10)) snd('thud', e.x, { vol: .35, pitch: 1.4 });
+  }
+  else { e.vx = e.vz = 0; }  // disco, ice, fart: stuck where they stand
+  if (c === 'disco' && R() < dt * 1.2) pop(pick(['GROOVY!', 'YEAH!', 'WOO!']), e, '#ff6ad5', .7);
+}
+function burst(x, y, r, color) { logEv('b', q3(x / W), q3(y / H), q3(r / H), color); fx({ k: 'burst', x, y, r, color, life: .5, max: .5 }); }
 function grab(e) {
   if (e.item) return throwHeld(e);
   const it = S.items.find(i => !i.held && i.y === 0 && Math.abs(i.x - e.x) < .05 && Math.abs(i.z - e.z) < .05);
@@ -480,6 +698,8 @@ function finishing(dt) {
     let go = false;
     if (ctrl[i] === 'cpu') go = S.phaseT > 1.8;
     else { ctrl[i] === 'net' ? netIn(w) : human(w, i); go = w.inp.punch || w.inp.kick || w.inp.grab; }
+    if (S.spoonFin) return spoonFinale(dt, w, S.victim, go);
+    if (go && S.phaseT > .5 && spOf(w.k).type === 'spoon') { S.spoonFin = { t: -.001 }; S.banner = ''; S.sub = ''; S.subs.length = 0; return; }
     if (go && S.phaseT > .5) {
       const fin = window.NICKNAMES && window.NICKNAMES[w.k] && window.NICKNAMES[w.k].fin;
       if (!window.Comic) return finishOff();
@@ -491,6 +711,22 @@ function finishing(dt) {
     while (c.cues[c.cued] && c.cues[c.cued][0] <= S.phaseT) snd(c.cues[c.cued++][1]);
     if (S.phaseT > c.len) finishOff(c.fin && c.fin.name);
   }
+}
+function spoonFinale(dt, w, v, skip) {  // Neo glow and glyph rain; the loser turns to glyphs, then a spoon; Moses strikes; it bends... CRACK... and topples. The end.
+  const f = S.spoonFin, t0 = f.t; f.t += dt;
+  if (skip && f.t > 1.6 && f.t < 4.6) f.t = 4.6;  // impatient: straight to the end
+  const at_ = (t, fn) => { if (t0 < t && f.t >= t) fn(); };
+  at_(0, () => { neo(w, 4.6, 1); talk(w, 'Free your mind.', { to: v }); w.face = Math.sign(v.x - w.x) || w.face; S.slowT = 0; });
+  at_(1.2, () => { v.curse = 'spoon'; v.curseBy = w; v.keepCurse = true; v.finBend = 0; set(v, 'cursed'); const [x, y] = at(v, .6);
+    burst(x, y, v.h, '#00ff66'); spray(x, y, 28, '#00ff66', 0, H * .3, v.h * .015, .8); snd('pop', v.x); });
+  at_(2.0, () => { const [x, y] = at(w, .6); swoosh(x, y, w.face, w.h * .3); w.x = clamp(v.x - w.face * .065, .04, .96); w.z = v.z; set(w, 'attack'); w.move = MOVES.cross; w.done = true; snd('dash', w.x); });
+  at_(2.25, () => { pop('TINK', v, '#ffffff', .8); snd('clonk', v.x, { pitch: 2 }); });
+  at_(2.4, () => snd('creak', v.x));
+  if (f.t >= 2.4 && f.t < 3.4) v.finBend = 1.48 * Math.pow((f.t - 2.4) / 1, 2);  // slowly over to 85 degrees
+  at_(3.4, () => { v.finBend = 1.75; v.xEyes = true; set(v, 'bent'); pop('CRACK!', v, '#ffffff', 1.6); snd('crack', v.x); snd('metal', v.x); S.freeze = .3; S.shake = H * .02; });
+  for (const [t, vol] of [[3.9, .8], [4.2, .5], [4.4, .3]]) at_(t, () => snd('clatter', v.x, { vol }));
+  at_(4.6, () => { S.matrix = 0; S.neoT = 0; S.banner = 'THERE IS NO SPOON'; S.bannerT = 9; });
+  if (f.t > 5.5) { S.spoonFin = null; finishOff('THERE IS NO SPOON'); }
 }
 function finishOff(move) {
   const v = S.victim;
@@ -555,8 +791,15 @@ function flash(e) {
 
 // ---- CPU player: chase the rival, grab loot, sometimes flatten a bystander, jump the flash if it's good enough
 function cpu(p, dt) {
-  const n = p.inp, lv = p.lv; n.punch = n.kick = n.grab = n.jump = false;
+  const n = p.inp, lv = p.lv; BTN.forEach(k => n[k] = false); n.roll = null;
   const foe = S.players[0] === p ? S.players[1] : S.players[0], ph = S.photog;
+  const free = p.state === 'idle' || p.state === 'walk';
+  if (free && foe.state === 'attack' && foe.move && foe.st < foe.move.hit && p.sawSwing !== foe.move && Math.abs(foe.x - p.x) < foe.move.reach + .03 && Math.abs(foe.z - p.z) < .07) {
+    p.sawSwing = foe.move; if (R() < (lv.roll || 0)) { n.roll = [R() < .5 ? -Math.sign(foe.x - p.x) : Math.sign(foe.x - p.x), 0]; return; }
+  }
+  if (free && foe.state === 'cast' && p.sawCast !== foe.st && R() < (lv.roll || 0) * 1.5) { p.sawCast = foe.st; n.roll = [0, p.z > .5 ? -1 : 1]; return; }
+  if (free && p.sp >= 1 && R() < dt * 1.2) { n.special = true; return; }
+  if (p.state === 'grabbed' && p.st < .15 && R() < lv.grab * 2) { n.grab = true; return; }
   if (ph && ph.state === 'aim' && ph.st > .55 && p.sawShot !== ph.shots) {  // the flash is coming
     p.sawShot = ph.shots;
     if (R() < lv.dodge && Math.abs(ph.z - p.z) < .1) n.jump = true;
@@ -574,7 +817,7 @@ function cpu(p, dt) {
   const g = p.goal, dx = g.x - p.x, dz = g.z - p.z, loot = S.items.includes(g);
   const it = p.item, shoots = it && it.ammo > 0 && (it.type === 'champagne' || it.type === 'raygun');
   const ranged = it && (shoots || it.type === 'shoe' || it.type === 'plate');
-  const want = loot || g.spot ? 0 : ranged ? .22 : .045;
+  const want = loot || g.spot ? 0 : ranged ? .22 : .045 * REACH;
   n.mx = (Math.abs(dx) > want + .015 ? Math.sign(dx) : Math.abs(dx) < want - .03 ? -Math.sign(dx) * .6 : 0) * lv.speed;
   n.mz = (Math.abs(dz) > .02 ? Math.sign(dz) * .9 : 0) * lv.speed;
   if (p.x < .18 || p.x > .82) n.mx = clamp(n.mx + (p.x < .5 ? .7 : -.7), -1.2, 1.2);  // drift back toward the middle of the floor
@@ -584,39 +827,60 @@ function cpu(p, dt) {
   if (ranged && Math.abs(dx) < .5) { p.face = Math.sign(dx) || p.face; n[shoots ? 'punch' : 'grab'] = true; }
   else if (Math.abs(dx) < want + .03) {
     p.face = Math.sign(dx) || p.face;
-    if (g === foe && Math.abs(dx) < .06 && R() < lv.grab) n.grab = true; else n[R() < .6 ? 'punch' : 'kick'] = true;
+    if (g === foe && Math.abs(dx) < .075 && R() < (foe.state === 'block' ? lv.grab * 4 : lv.grab)) n.grab = true; else n[R() < .6 ? 'punch' : 'kick'] = true;
   }
 }
 
 // ---- humans: keys (LAYOUT), or gamepad n once any of its buttons is pressed. Buttons fire on press.
+const BTN = ['punch', 'kick', 'grab', 'jump', 'special'];  // buttons that act when pressed
+const taps = [{}, {}], touch = { on: false, mx: 0, mz: 0, tapped: new Set() };  // tapped: buttons pressed since the last frame (a tap shorter than a frame still counts)
+function rollTap(i, b) {  // double-tap a direction, or press ROLL, = roll that way; [0, 0] = roll back
+  const s = taps[i], now = performance.now() / 1000;
+  let r = b.roll && !s.btn ? [Math.sign(b.mx), Math.sign(b.mz)] : null; s.btn = b.roll;
+  for (const ax of ['x', 'z']) {
+    const v = ax === 'x' ? b.mx : b.mz, d = Math.abs(v) > .5 ? Math.sign(v) : 0, last = s['t' + ax];
+    if (d && d !== s[ax]) {  // a fresh press of this direction
+      if (last && last[0] === d && now - last[1] < TAP) { r = ax === 'x' ? [d, 0] : [0, d]; s['t' + ax] = null; }
+      else s['t' + ax] = [d, now];
+    }
+    s[ax] = d;
+  }
+  return r;
+}
 function pad(i) { const gp = navigator.getGamepads && navigator.getGamepads()[i]; return gp && gp.connected ? gp : null; }
-function readControls(i) {  // { mx, mz, punch, kick, grab, jump } held right now for local player slot i
-  const b = { mx: 0, mz: 0, punch: false, kick: false, grab: false, jump: false }, gp = pad(net ? 0 : i);
+function readControls(i) {  // { mx, mz, punch, kick, grab, jump, special, roll } held right now for local player slot i
+  const b = { mx: 0, mz: 0, punch: false, kick: false, grab: false, jump: false, special: false, roll: false }, gp = pad(net ? 0 : i);
   if (gp && gp.buttons.some(x => x.pressed)) ctrl[i] = 'pad';
   if (ctrl[i] === 'pad' && gp) {
     const on = j => !!(gp.buttons[j] && gp.buttons[j].pressed);
     b.mx = Math.abs(gp.axes[0]) > .25 ? gp.axes[0] : on(15) - on(14);
     b.mz = Math.abs(gp.axes[1]) > .25 ? gp.axes[1] : on(13) - on(12);
-    Object.assign(b, { jump: on(0), grab: on(1), punch: on(2), kick: on(3) });  // A jump, B grab/throw, X punch, Y kick
+    Object.assign(b, { jump: on(0), grab: on(1), punch: on(2), kick: on(3), roll: on(4), special: on(5) });  // A jump, B grab/throw, X punch, Y kick, LB roll, RB special
   } else {
-    const lay = layout(), m = lay[net ? 0 : i] || lay[0], on = a => m[a].some(c => keys.has(c) || tapped.has(c));
+    const lay = layout(), m = lay[net ? 0 : i] || lay[0], on = a => (m[a] || []).some(c => keys.has(c) || tapped.has(c));
     b.mx = on('right') - on('left'); b.mz = on('down') - on('up');
-    Object.assign(b, { punch: on('punch'), kick: on('kick'), grab: on('grab'), jump: on('jump') });
+    Object.assign(b, { punch: on('punch'), kick: on('kick'), grab: on('grab'), jump: on('jump'), special: on('special') });
+  }
+  if (touch.on && (net || i === 0)) {  // the on-screen pad (phones) drives the local player
+    if (touch.mx || touch.mz) { b.mx = touch.mx; b.mz = touch.mz; }
+    for (const k of [...BTN, 'roll']) b[k] = b[k] || !!touch[k] || touch.tapped.has(k);
   }
   return b;
 }
 function human(p, i) {
   const n = p.inp, b = readControls(i);
-  n.mx = b.mx; n.mz = b.mz;
-  for (const key of ['punch', 'kick', 'grab', 'jump']) { n[key] = b[key] && !p.prev[key]; p.prev[key] = b[key]; }
+  n.mx = b.mx; n.mz = b.mz; n.roll = rollTap(i, b);
+  for (const key of BTN) { n[key] = b[key] && !p.prev[key]; p.prev[key] = b[key]; }
 }
 function netIn(p) {  // host: the online guest's latest controls (presses are counters, so a short tap is never lost)
   const d = net.link.latest(), n = p.inp;
-  n.punch = n.kick = n.grab = n.jump = false; n.mx = n.mz = 0; p.remote = null;
+  BTN.forEach(k => n[k] = false); n.roll = null; n.mx = n.mz = 0; p.remote = null;
   if (!d || !d.in) return;
   n.mx = clamp(+d.in.mx || 0, -1, 1); n.mz = clamp(+d.in.mz || 0, -1, 1);
   const c = Array.isArray(d.in.p) ? d.in.p : [];
-  ['punch', 'kick', 'grab', 'jump'].forEach((b, i) => { const v = +c[i] || 0; if (v > (net.seen[i] ?? v)) n[b] = true; net.seen[i] = v; });
+  BTN.forEach((b, i) => { const v = +c[i] || 0; if (v > (net.seen[i] ?? v)) n[b] = true; net.seen[i] = v; });
+  const r = Array.isArray(d.in.r) ? d.in.r.map(Number) : null;  // [rolls so far, dx, dz]
+  if (r && Number.isFinite(r[0])) { if (r[0] > (net.rolls ?? r[0])) n.roll = [Math.sign(r[1]) || 0, Math.sign(r[2]) || 0]; net.rolls = r[0]; }
   if (Array.isArray(d.me) && d.me.length >= 5 && d.me.slice(0, 4).every(Number.isFinite)) p.remote = d.me;
   net.ack = +d.n || 0;
 }
@@ -801,6 +1065,7 @@ const hipAt = e => e.rig ? (e.rig.foot - e.rig.J.hip[1]) / (e.rig.foot - e.rig.t
 // ---- simulation
 function update(dt) {
   if (S.freeze > 0) { S.freeze -= dt; ambient(dt * .25); return; }  // hit-stop
+  S.dimBy = null;
   S.t += dt; S.phaseT += dt; S.bannerT -= dt;
   if (S.phase === 'intro' && !S.taunted && S.phaseT > .3) {
     S.taunted = true; const [a, b] = S.players;
@@ -838,12 +1103,13 @@ function update(dt) {
     if (S.crowned && !S.next && S.phaseT > (S.final ? 8 : 5.5)) { S.next = true; next(); if (!S) return; }
   }
   if (S.phase === 'fight') S.players.forEach((p, i) => ctrl[i] === 'cpu' ? cpu(p, dt) : ctrl[i] === 'net' ? netIn(p) : human(p, i));
-  else S.players.forEach(p => { p.inp.punch = p.inp.kick = p.inp.grab = p.inp.jump = false; });
+  else S.players.forEach(p => { BTN.forEach(k => p.inp[k] = false); p.inp.roll = null; });
   for (let i = 0; i < 2; i++) if (ctrl[i] === 'cpu' && mode === 'demo') { const gp = pad(i); if (gp && gp.buttons.some(b => b.pressed)) ctrl[i] = 'pad'; }
-  tapped.clear();
+  tapped.clear(); touch.tapped.clear();
   chaos(dt);
   director(dt);
   for (const e of S.people) person_(e, dt);
+  pushApart();
   for (const it of S.items) if (!it.held && (it.y > 0 || it.vy)) {
     it.vy -= 6 * dt; it.y = Math.max(0, it.y + it.vy * dt); it.x = clamp(it.x + it.vx * dt, .03, .97);
     if (!it.y) { it.vy = it.vx = 0; snd(it.type === 'raygun' ? 'metal' : 'clatter', it.x); }
@@ -857,7 +1123,7 @@ function update(dt) {
     if (v) {
       const [dmg, word, sound] = THROWN[s.type];
       const scale = v.role === 'fighter' && s.owner.role === 'fighter' ? comboUp(s.owner, v) : 1;
-      hurt(v, dmg * scale * (isCpu(s.owner) ? s.owner.lv.dmg : 1), Math.sign(s.vx), word, sound, { stun: .36, kb: .2 });
+      hurt(v, dmg * scale * (isCpu(s.owner) ? s.owner.lv.dmg : 1), Math.sign(s.vx), word, sound, { stun: .36, kb: .2 }, s.owner);
       land(s, true);
     } else if (s.y <= 0) land(s);
     else if (s.x < -.05 || s.x > 1.05) s.dead = true;
@@ -871,6 +1137,13 @@ function ambient(dt) {  // the purely visual part, run by host and online guest 
   for (const d of S.doves) d.x += d.dir * d.sp * dt;
   S.doves = S.doves.filter(d => d.x > -.4 && d.x < 1.4);
   if (S.disco > 0) S.disco -= dt;
+  if (S.matrix > 0) S.matrix -= dt;
+  if (S.cutin && (S.cutin.t -= dt) <= 0) S.cutin = null;
+  if (S.neoT > 0) S.neoT -= dt;
+  for (const p of S.players) {  // the white chunk of health bar that drains a moment after a hit
+    if (p.trail == null || p.trail < p.hp) p.trail = p.hp;
+    else if (S.t - (p.hurtAt || 0) > .5) p.trail += (p.hp - p.trail) * (1 - Math.exp(-6 * dt));
+  }
   S.white = S.white.map(w => Math.max(0, w - dt * 1.6));
   if (S.confetti > 0) {
     S.confetti -= dt;
@@ -899,6 +1172,15 @@ function land(s, hit) {
   if (!hit) snd('clatter', s.x);
   S.items.push(Object.assign(s.it, { x: clamp(s.x, .03, .97), z: s.z, y: Math.max(s.y, 0), vy: .8, vx: -Math.sign(s.vx) * .15, held: null }));
 }
+function pushApart() {  // fighters can't walk through each other; a roll can (that's how you get behind someone)
+  const [a, b] = S.players;
+  if (!a || !b || [a, b].some(p => p.state === 'roll' || p.y > .3 || DOWN.has(p.state) || p.state === 'cursed' || p.gone)) return;
+  const dx = b.x - a.x, gap = .035;
+  if (Math.abs(dx) < gap && Math.abs(b.z - a.z) < .05) {
+    const push = (gap - Math.abs(dx)) / 2 * (Math.sign(dx) || (a.face > 0 ? 1 : -1));
+    a.x = clamp(a.x - push, .04, .96); b.x = clamp(b.x + push, .04, .96);
+  }
+}
 function person_(e, dt) {
   if (e.gone) {  // up in the saucer; drops back in from the sky
     if (!e.left && (e.awayT -= dt) <= 0) {
@@ -909,7 +1191,7 @@ function person_(e, dt) {
   }
   e.st += dt; e.cd -= dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt;
   if (e.say && (e.say.t -= dt) <= 0) e.say = null;
-  const free = e.state === 'idle' || e.state === 'walk', pinned = !!e.remote && free && S.phase === 'fight';
+  const free = e.state === 'idle' || e.state === 'walk', pinned = !!e.remote && free && S.phase === 'fight' && !(e.y > .05 && e.remote[2] < .02);  // the host flies a jump it started
   e.talk -= dt;
   if (e.role === 'fighter' && free && S.phase === 'fight' && (e.quipIn -= dt) <= 0) {
     e.quipIn = 16 + R() * 14;
@@ -917,26 +1199,40 @@ function person_(e, dt) {
   }
   if (e.role === 'fighter') {
     const n = e.inp;
+    if (e.curse) curseTick(e, n, dt);  // a special on you: the controls may not be yours
+    if (S.t - (e.blockAt ?? -9) > 1) e.guard = Math.min(1, (e.guard ?? 1) + dt * GUARDBAR.regen);
+    const rival = S.players.find(p => p !== e), side = rival ? Math.sign(rival.x - e.x) : 0;
+    if (side && side !== e.side) { e.side = side; e.sideAt = S.t; }  // they just crossed over
+    if (e.state === 'grabbed' && n.grab && e.st < .2 && e.grabber) tech(e);
+    if (e.curse === 'cake' && n.grab) { e.curseT -= .35; n.grab = false; pop('WIPE!', e, '#fff6e6', .7); }  // wipe some cream off
     if (pinned) {  // the online guest moves its own fighter; the host takes its word for where it is while it's free
       const [x, z, y, f, walking] = e.remote, nx = clamp(x, .04, .96);
       if (!e.y && y > .05) snd('swing', e.x, { pitch: .6 });
-      e.vx = clamp(n.mx || 0, -1, 1) * .3; e.vz = clamp(n.mz || 0, -1, 1) * .18; e.x = nx; e.z = clamp(z, 0, 1); e.y = clamp(y, 0, 3); e.vy = 0; e.face = f < 0 ? -1 : 1;
+      stepSpeed(e, clamp(n.mx || 0, -1, 1), clamp(n.mz || 0, -1, 1)); e.x = nx; e.z = clamp(z, 0, 1); e.y = clamp(y, 0, 3); e.vy = 0; e.face = f < 0 ? -1 : 1;
       e.state = walking ? 'walk' : 'idle'; e.running = walking === 2; if (e.running) e.ranAt = S.t;
       if (n.grab && !throwFoe(e)) grab(e);
     } else if (free && S.phase === 'fight') {
       const dirX = Math.sign(n.mx || 0);  // hold a direction to break into a run (a running punch or kick is a dropkick)
-      e.runT = dirX && dirX === e.runDir && Math.abs(n.mx) > .5 ? (e.runT || 0) + dt : 0; e.runDir = dirX; e.running = e.runT > .35;
+      e.runT = dirX && dirX === e.runDir && Math.abs(n.mx) > .85 ? (e.runT || 0) + dt : 0; e.runDir = dirX; e.running = e.runT > RUN_HOLD;
       if (e.running) e.ranAt = S.t;
-      e.vx = (n.mx || 0) * .3 * (e.running ? 1.75 : 1); e.vz = (n.mz || 0) * .18;
+      stepSpeed(e, n.mx || 0, n.mz || 0);
       if (n.mx) e.face = Math.sign(n.mx);
       e.state = n.mx || n.mz ? 'walk' : 'idle';
       if (n.jump && !e.y) { e.vy = 2.3; snd('swing', e.x, { pitch: .6 }); }
       if (n.grab && !throwFoe(e)) grab(e);
     } else if (free) { e.vx = e.vz = 0; e.state = 'idle'; }
+    if (S.phase === 'fight' && !e.y) {
+      if (n.roll && (e.state === 'idle' || e.state === 'walk')) roll(e, n.roll);
+      else if (n.roll && canCancel(e) && (e.chaseN || 0) < 2) roll(e, n.roll, true);  // a landed blow can be chased with a dash (twice a combo)
+      else if (n.special && (e.state === 'idle' || e.state === 'walk')) special(e);
+      else if (n.jump && e.state === 'attack' && e.move.key === 'upper' && e.hitConfirm && e.st >= e.move.hit) {  // jump after them: an air combo
+        set(e, 'idle'); e.vy = 2.6; e.airN = 0; snd('swing', e.x, { pitch: .6 });
+      }
+    }
     if (n.punch || n.kick) e.buf = { kind: n.kick ? 'kick' : 'punch', t: S.t };  // buffered: a press just before you can act still counts
     if (e.buf && S.phase === 'fight') {
-      if (S.t - e.buf.t > .3) e.buf = null;
-      else if (e.state === 'idle' || e.state === 'walk' || canCancel(e)) { const k = e.buf.kind; e.buf = null; attack(e, k); }
+      if (S.t - e.buf.t > .15) e.buf = null;
+      else if (e.state === 'idle' || e.state === 'walk' || canCancel(e) || (e.state === 'roll' && e.roll && e.roll.kind === 'chase' && e.st > .05)) { const k = e.buf.kind; e.buf = null; attack(e, k); }
     }
   } else if (e.role === 'photog') photog(e, dt, free);
   else if (free) {
@@ -951,6 +1247,17 @@ function person_(e, dt) {
     case 'attack': if (!e.done && e.st >= e.move.hit) { e.done = true; strike(e); } if (e.st >= e.move.t) set(e, 'idle'); break;
     case 'hit': if (e.st > (e.stunFor || .28)) set(e, 'idle'); break;
     case 'block': if (e.st > (e.blockFor || .2)) set(e, 'idle'); break;
+    case 'roll': {  // fast, slowing to a stop; a real roll leaves the floor a little so the tumble clears it
+      const r = e.roll || { kind: 'fwd', t: .45, dir: [e.face, 0], v: .5 }, p = clamp(e.st / r.t, 0, 1), k = 1.4 - p;
+      e.vx = r.dir[0] * r.v * k; e.vz = r.dir[1] * r.v * k;
+      if (r.kind === 'fwd' || r.kind === 'back') { e.y = .18 * Math.sin(Math.PI * p); e.vy = 0; }
+      if (e.st >= r.t) { set(e, 'idle'); if (r.kind === 'fwd' || r.kind === 'back') e.y = 0; faceFoe(e, true); }
+      break;
+    }
+    case 'whiff': if (e.st > .45) set(e, 'idle'); break;
+    case 'cast': if (!e.done && e.st >= CAST_HIT) { e.done = true; castHit(e); } if (e.st > CAST_T) set(e, 'idle'); break;
+    case 'cursed': curseMove(e, dt); break;
+
     case 'launched': if (!e.y && e.st > .12) { set(e, 'down'); snd('thud', e.x); S.shake = Math.max(S.shake, H * .01); } break;
     case 'grabbed': if (!e.grabber || e.grabber.state !== 'throw') { e.grabber = null; set(e, 'idle'); } break;
     case 'throw': {
@@ -959,7 +1266,7 @@ function person_(e, dt) {
       if (e.st < .3) { v.x = clamp(e.x + e.face * .03, .04, .96); v.z = e.z; v.y = .1 + e.st; v.face = -e.face; }
       else {  // over the shoulder: they land behind
         v.grabber = null; e.victim = null; set(v, 'idle'); v.y = .4;
-        hurt(v, 13 * comboUp(e, v) * (isCpu(e) ? e.lv.dmg : 1), -e.face, 'SUPLEX!', 'kick', { knock: 1, kb: .5 });
+        hurt(v, 13 * comboUp(e, v) * (isCpu(e) ? e.lv.dmg : 1), -e.face, 'SUPLEX!', 'kick', { knock: 1, kb: .5 }, e);
         S.freeze = Math.max(S.freeze, .12); S.shake = Math.max(S.shake, H * .02); set(e, 'idle');
       }
       break;
@@ -1026,19 +1333,21 @@ function person_(e, dt) {
     }
     case 'win': if (!e.y && R() < dt * 3) e.vy = 1.7; break;
   }
-  const lying = ['down', 'cry', 'ko', 'slip'].includes(e.state) || (e.state === 'faint' && e.st > .4);
+  const lying = ['down', 'cry', 'ko', 'slip'].includes(e.state) || (e.state === 'faint' && e.st > .4) || (e.state === 'bent' && e.st > .35);
   if (e.state === 'flip') e.rot = -TAU * clamp(e.st / .8, 0, 1) * e.spin;
   else if (e.state === 'beam' || e.state === 'fall') e.rot += dt * 6;
+  else if (e.state === 'roll') e.rot = e.roll && (e.roll.kind === 'fwd' || e.roll.kind === 'back') ? TAU * clamp(e.st / e.roll.t, 0, 1) * (Math.sign(e.roll.dir[0] * e.face) || 1) : 0;
+  else if (e.state === 'cursed' && e.curse === 'escalator') e.rot = e.st < .5 ? 0 : -TAU * (e.st - .5) * 1.6;
   else {
     e.rot = ((e.rot + Math.PI) % TAU + TAU) % TAU - Math.PI;  // unwind a spin before settling
     const target = lying ? -D : e.state === 'faint' ? Math.sin(e.st * 18) * .15 : e.state === 'launched' ? -.9 : e.state === 'grabbed' ? -.5 : 0;
-    e.rot += (target - e.rot) * Math.min(1, dt * (e.state === 'slip' ? 24 : e.state === 'getup' ? 7 : e.state === 'faint' ? 5 : 14));
+    e.rot += (target - e.rot) * Math.min(1, dt * (e.state === 'slip' ? 24 : e.state === 'getup' ? 7 : e.state === 'faint' ? 5 : e.state === 'bent' ? 5 : 14));
   }
   const wide = e.transit || e.state === 'horse' || e.state === 'rider';
   if (!pinned) { e.x = clamp(e.x + e.vx * dt, wide ? -.25 : .04, wide ? 1.25 : .96); e.z = clamp(e.z + e.vz * dt, 0, 1); }
   if (!free && e.state !== 'horse') { const f = Math.exp(-5 * dt); e.vx *= f; e.vz *= f; }  // knockbacks die down; walking speeds are set fresh each frame
-  if (!pinned && e.state !== 'beam' && e.state !== 'rider' && e.state !== 'grabbed' && (e.y > 0 || e.vy > 0)) {
-    e.vy -= 7 * dt; e.y = Math.max(0, e.y + e.vy * dt); if (!e.y) { e.vy = 0; e.airDone = false; }
+  if (!pinned && e.state !== 'beam' && e.state !== 'rider' && e.state !== 'grabbed' && !(e.state === 'cursed' && (e.curse === 'balloon' || e.curse === 'escalator')) && (e.y > 0 || e.vy > 0)) {
+    e.vy -= 7 * dt; e.y = Math.max(0, e.y + e.vy * dt); if (!e.y) { e.vy = 0; e.airN = 0; }
   }
   if (e.state === 'walk' || e.state === 'horse') e.walkPh += dt * (5 + Math.hypot(e.vx, e.vz) * 30);
   place(e); animate(e, dt);
@@ -1058,6 +1367,12 @@ function poseFor(e) {
     case 'block': return POSE.shield();
     case 'launched': case 'grabbed': return POSE.flail(t);
     case 'throw': return POSE.grip();
+    case 'roll': return !e.roll || e.roll.kind === 'fwd' || e.roll.kind === 'back' ? POSE.tuck() : e.roll.kind === 'chase' ? POSE.sprint(t * 3) : POSE.guard(t);
+    case 'whiff': return POSE.grip();
+    case 'cast': return e.cast === 'spoon' ? POSE.aim() : POSE.cheer(t);
+    case 'bent': return POSE.stand(t);
+    case 'cursed': return e.curse === 'disco' ? POSE.dance(t) : e.curse === 'balloon' ? POSE.flail(t * .25) : e.curse === 'ice' ? POSE.hit()
+      : e.curse === 'smooch' ? POSE.swoon() : e.curse === 'escalator' ? (e.st < 1.7 ? POSE.flail(t) : POSE.tuck()) : POSE.dazed(t);
     case 'down': case 'ko': return POSE.lie();
     case 'cry': return POSE.cry(t);
     case 'slip': return st < .6 ? POSE.slip(t) : POSE.lie();
@@ -1098,7 +1413,7 @@ function animate(e, dt) {
   const tgt = Puppet.solve(e.rig, pose), k = Math.min(1, dt * (e.state === 'attack' ? 30 : DOWN.has(e.state) ? 9 : 15));
   for (const n in tgt) e.ang[n] = (e.ang[n] || 0) + (tgt[n] - (e.ang[n] || 0)) * k;
   e.ang.mouth = tgt.mouth;
-  const upright = !['down', 'cry', 'ko', 'slip', 'faint', 'flip', 'beam', 'fall', 'rider', 'launched', 'grabbed'].includes(e.state) && e.y < .02;
+  const upright = !['down', 'cry', 'ko', 'slip', 'faint', 'flip', 'beam', 'fall', 'rider', 'launched', 'grabbed', 'roll', 'cursed', 'bent'].includes(e.state) && e.y < .02;
   e.sink += ((upright ? Puppet.sink(e.rig, e.ang) : 0) - e.sink) * k;  // bent knees lower the body instead of lifting the feet
 }
 
@@ -1134,20 +1449,26 @@ function bobOf(e) {  // the little bounce of walking, dancing and breathing
   return e.state === 'walk' || e.state === 'horse' ? Math.abs(Math.sin(e.walkPh)) * h * .02 : dancing ? Math.abs(Math.sin(S.t * 8 + e.seed)) * h * .03
     : DOWN.has(e.state) ? 0 : (Math.sin(S.t * 2.2 + e.seed) * .5 + .5) * h * .005;
 }
-const glowCv = [0, 1].map(() => [document.createElement('canvas'), document.createElement('canvas')]);
+const glowCv = [0, 1].map(() => [document.createElement('canvas'), document.createElement('canvas')]), glowQ = [0, 1].map(() => document.createElement('canvas'));
 function drawGlow(e, i) {  // a red / blue halo around each fighter, drawn over everything so it shows through whoever stands in front
   if (!e.rig || e.gone || !e.img) return;
   const h = e.h, size = Math.ceil(h * 1.9), [a, b] = glowCv[i], ox = e.X - size / 2, oy = e.Y - h * 1.33;
   for (const c of [a, b]) if (c.width !== size) c.width = c.height = size;
   const g = a.getContext('2d');
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, size, size);
-  g.translate(e.X - ox, e.Y - oy - bobOf(e)); g.scale(e.face, 1); g.rotate(e.rot);
-  Puppet.draw(g, e.rig, e.ang, h, { sink: e.sink });
-  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = TEAM[i]; g.fillRect(0, 0, size, size); g.globalCompositeOperation = 'source-over';
+  const neoOn = S.neoT > 0 && S.neo === e;
+  if (critter(e)) { g.translate(-ox, -oy); drawCritter(e, bobOf(e), g); }
+  else { g.translate(e.X - ox, e.Y - oy - bobOf(e)); g.scale(e.face, 1); turn(g, e); Puppet.draw(g, e.rig, e.ang, h, { sink: e.sink }); }
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = neoOn ? '#c8ffd8' : TEAM[i]; g.fillRect(0, 0, size, size); g.globalCompositeOperation = 'source-over';
+  const q = glowQ[i], qs = Math.max(8, Math.round(size / (neoOn ? 10 : 7))), qg = q.getContext('2d');
+  if (q.width !== qs) q.width = q.height = qs;
+  qg.clearRect(0, 0, qs, qs);
+  for (const [dx, dy] of [[0, 0], [.6, 0], [-.6, 0], [0, .6], [0, -.6]]) qg.drawImage(a, dx, dy, qs, qs);
   const r = b.getContext('2d');
-  r.setTransform(1, 0, 0, 1, 0, 0); r.clearRect(0, 0, size, size);
-  r.filter = `blur(${Math.max(2, h * .022)}px)`; r.drawImage(a, 0, 0); r.drawImage(a, 0, 0); r.filter = 'none';
+  r.setTransform(1, 0, 0, 1, 0, 0); r.clearRect(0, 0, size, size); r.imageSmoothingEnabled = true; r.imageSmoothingQuality = 'high';
+  r.globalAlpha = neoOn ? .65 + .2 * Math.sin(S.t * 12.6) : .38; r.drawImage(q, 0, 0, size, size); if (neoOn) r.drawImage(q, 0, 0, size, size); r.globalAlpha = 1;  // a faint rim; Neo blazes
   r.globalCompositeOperation = 'destination-out'; r.drawImage(a, 0, 0); r.globalCompositeOperation = 'source-over';  // only the halo outside the body
+  if (neoOn) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(b, ox, oy); ctx.restore(); }
   ctx.drawImage(b, ox, oy);
 }
 function reachMarks() {  // a pulsing arrow over the rival whenever your next blow would land
@@ -1170,10 +1491,23 @@ function drawPerson(e) {
   if (p >= 0) {  // fighter: team ring on the floor and a tag overhead, so they stand out from the crowd
     ctx.strokeStyle = TEAM[p]; ctx.lineWidth = h * .012;
     ctx.beginPath(); ctx.ellipse(e.X, feetY(e.z), h * .16, h * .045, 0, 0, TAU); ctx.stroke();
+    if ((e.guard ?? 1) < .999) {  // what's left of their guard, around the ring
+      ctx.strokeStyle = e.guard < .35 ? '#D55E00' : '#ffffff'; ctx.lineWidth = h * .02;
+      ctx.beginPath(); ctx.ellipse(e.X, feetY(e.z), h * .16, h * .045, 0, Math.PI * .5, Math.PI * .5 + TAU * Math.max(0, e.guard)); ctx.stroke();
+    }
     if (!DOWN.has(e.state)) { const [x, y] = at(e, 1.1); label(net ? (p === mySlot() ? 'YOU' : 'P' + (p + 1)) : `P${p + 1}`, x, y, h * .07, 'center', TEAM[p], 'pixel'); }
   }
   const bob = bobOf(e);
-  ctx.save(); ctx.translate(e.X, e.Y - bob); ctx.scale(e.face, 1); ctx.rotate(e.rot);
+  if (e.curse === 'escalator' && e.esc && e.state === 'cursed') drawEscalator(e);
+  if (e.state === 'cast' && e.castX != null) {  // the special's bolt running along the floor to where the rival stood
+    const p = clamp(e.st / CAST_HIT, 0, 1), x0 = e.X, y0 = feetY(e.z), x1 = x0 + (e.castX * W - x0) * p, y1 = y0 + (feetY(e.castZ) - y0) * p, c = (CURSE[e.cast] || CURSE.pig).color;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = c; ctx.lineCap = 'round';
+    ctx.lineWidth = h * .03; ctx.globalAlpha = .5; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.fillStyle = '#fff'; for (let i = 0; i < 4; i++) star(x1 + (R() - .5) * h * .1, y1 - h * (.05 + R() * .25), h * .025, i % 2 ? c : '#ffffff');
+    ctx.restore();
+  }
+  if (critter(e)) { drawCritter(e, bob); return curseFx(e); }
+  ctx.save(); ctx.translate(e.X, e.Y - bob); ctx.scale(e.face, 1); turn(ctx, e);
   if (e.flash > 0) ctx.filter = 'brightness(2.6)';
   if (e.rig) Puppet.draw(ctx, e.rig, e.ang, h, { sink: e.sink, hand: e.item || e.prop ? () => holding(e) : null });
   else {
@@ -1187,6 +1521,158 @@ function drawPerson(e) {
     const [x, y] = at(e, e.state === 'dazed' ? 1.02 : .95);
     for (let i = 0; i < 3; i++) { const q = S.t * 4 + i * TAU / 3; star(x + Math.cos(q) * h * .08, y - h * .06 + Math.sin(q) * h * .025, h * .022, '#ffe14d'); }
   }
+  if (e.curse) curseFx(e);
+}
+function turn(g, e) {  // a roll spins about the middle of the body, not the feet; a cursed body shrinks or puffs up
+  const c = (e.state === 'roll' && Math.abs(e.rot) > .01) || (e.state === 'cursed' && e.curse === 'escalator' && e.st > .5) ? e.h * .38 : 0;
+  g.translate(0, -c); g.rotate(e.rot); g.translate(0, c);
+  if (e.curse === 'tiny') g.scale(.5, .5);
+  else if (e.curse === 'balloon' && e.state === 'cursed') { const k = Math.min(1, e.st * 2.5); g.scale(1 + .7 * k + .05 * Math.sin(S.t * 9), 1 + .25 * k); }
+}
+const critter = e => e.curse === 'spoon' || (e.state === 'cursed' && (e.curse === 'pig' || e.curse === 'chicken'));
+function headOf(e) {  // the victim's face, cut from their puppet (or the top of a flat cut-out)
+  const r = e.rig;
+  if (r && r.parts.head) {
+    if (!r.headCv) {
+      const p = r.parts.head, c = Object.assign(document.createElement('canvas'), { width: p.canvas.width, height: p.canvas.height }), g = c.getContext('2d');
+      g.drawImage(p.canvas, 0, 0); if (r.parts.jaw) g.drawImage(r.parts.jaw.canvas, 0, 0);
+      r.headCv = c; r.headK = 1 / (r.foot - r.top);
+    }
+    return [r.headCv, r.headK];
+  }
+  if (!e.img) return null;
+  if (!e.headCv) { const c = Object.assign(document.createElement('canvas'), { width: e.img.width, height: Math.round(e.img.height * .22) }); c.getContext('2d').drawImage(e.img, 0, 0); e.headCv = c; }
+  return [e.headCv, 1 / e.img.height];
+}
+function drawCritter(e, bob, g = ctx) {  // a pig, a chicken or a spoon wearing the victim's face
+  const h = e.h, hd = headOf(e), t = S.t + e.seed, walk = Math.hypot(e.vx, e.vz) > .01;
+  const head = (x, y, size) => {  // centred on x, bottom at y, `size` = its height
+    if (!hd) return null;
+    const [cv] = hd, k = size / cv.height, w = cv.width * k;
+    g.drawImage(cv, x - w / 2, y - size, w, size); return [x, y - size, w, size];
+  };
+  const blob = (fill, path) => { g.beginPath(); path(); g.lineWidth = h * .03; g.strokeStyle = '#fff'; g.stroke(); g.fillStyle = fill; g.fill(); };
+  g.save(); g.translate(e.X, e.Y - bob); g.scale(e.face, 1); g.lineJoin = 'round'; g.lineCap = 'round';
+  const hs = (hd ? hd[0].height * hd[1] * h : h * .2) * (e.curse === 'spoon' ? 1 : 1.7);  // a big cartoon head on a little animal
+  if (e.curse === 'pig') {
+    const wob = walk ? Math.sin(t * 16) * .35 : 0, by = -h * .2 + (walk ? Math.abs(Math.sin(t * 16)) * h * .015 : 0);
+    for (const [lx, ph] of [[-.15, 0], [-.06, 1], [.07, 0], [.16, 1]]) {
+      g.save(); g.translate(lx * h, by + h * .07); g.rotate(ph ? wob : -wob); blob('#f19cb2', () => g.roundRect(-h * .025, 0, h * .05, h * .14, h * .02)); g.restore();
+    }
+    blob('#f7b3c4', () => g.ellipse(0, by, h * .25, h * .14, 0, 0, TAU));
+    g.strokeStyle = '#e88aa3'; g.lineWidth = h * .015; g.beginPath();  // the curly tail
+    for (let i = 0; i <= 20; i++) { const q = i / 20 * TAU * 1.5, rr = h * .03 * (1 - i / 30); g.lineTo(-h * .25 - h * .02 + Math.cos(q) * rr, by - h * .05 + Math.sin(q) * rr); }
+    g.stroke();
+    const f = head(h * .2, by - h * .02, hs);
+    if (f) {
+      const [x, y, w, hh] = f;
+      for (const s of [-1, 1]) blob('#f19cb2', () => { g.moveTo(x + s * w * .18, y + hh * .12); g.lineTo(x + s * w * .42, y - hh * .14); g.lineTo(x + s * w * .4, y + hh * .26); g.closePath(); });
+      blob('#f5a3b9', () => g.ellipse(x, y + hh * .62, w * .17, hh * .11, 0, 0, TAU));  // the snout over their nose
+      g.fillStyle = '#9c4a5e'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(x + s * w * .06, y + hh * .62, w * .03, hh * .04, 0, 0, TAU); g.fill(); }
+    }
+  } else if (e.curse === 'chicken') {
+    const flap = Math.sin(t * 22), by = -h * .24;
+    g.strokeStyle = '#f2a20c'; g.lineWidth = h * .014;
+    for (const lx of [-.04, .04]) { g.beginPath(); g.moveTo(lx * h, by + h * .1); g.lineTo(lx * h, 0); g.lineTo(lx * h + h * .04, 0); g.stroke(); }
+    blob('#ffffff', () => { g.moveTo(-h * .2, by - h * .1); g.lineTo(-h * .3, by - h * .2); g.lineTo(-h * .24, by - h * .02); g.closePath(); });  // tail feathers
+    blob('#fffaf0', () => g.ellipse(0, by, h * .17, h * .14, 0, 0, TAU));
+    g.save(); g.translate(-h * .02, by - h * .02); g.rotate(-.3 - flap * .6); blob('#f3ead8', () => g.ellipse(-h * .08, 0, h * .1, h * .05, 0, 0, TAU)); g.restore();
+    const f = head(h * .1, by - h * .08, hs);
+    if (f) {
+      const [x, y, w, hh] = f;
+      blob('#e8262f', () => { for (let i = 0; i < 3; i++) g.arc(x - w * .15 + i * w * .15, y + hh * .04, w * .09, Math.PI, 0); });  // the comb
+      blob('#ffb21a', () => { g.moveTo(x + w * .1, y + hh * .55); g.lineTo(x + w * .45, y + hh * .63); g.lineTo(x + w * .1, y + hh * .72); g.closePath(); });  // the beak
+    }
+  } else {  // the spoon: their face upside down in the bowl (as a spoon shows you), a neck that bends, lying on the floor at the end
+    const bend = e.finBend ?? (e.bendAt ? .7 * Math.max(0, 1 - (S.t - e.bendAt) / .4) : 0);  // a hit bends it 40 degrees and it springs back
+    const shiver = S.spoonFin && S.spoonFin.t > 1.6 && S.spoonFin.t < 2.4 ? (R() - .5) * 2 * DPR : 0;
+    g.translate(shiver, 0); g.rotate(e.rot + (e.state === 'cursed' ? Math.sin(t * 3) * .05 : 0));
+    const L = h, py = -L * .55, grad = g.createLinearGradient(-L * .12, 0, L * .12, 0);
+    grad.addColorStop(0, '#8d99a6'); grad.addColorStop(.45, '#f4f8fb'); grad.addColorStop(1, '#a7b2bd');
+    blob(grad, () => { g.moveTo(-L * .035, 0); g.quadraticCurveTo(-L * .018, py * .5, -L * .026, py); g.lineTo(L * .026, py); g.quadraticCurveTo(L * .018, py * .5, L * .035, 0); g.closePath(); });
+    g.save(); g.translate(0, py); g.rotate(bend);  // it bends at the neck
+    const rx = L * .17, ry = L * .24, cy = -ry;
+    blob(grad, () => { g.moveTo(-L * .026, 0); g.quadraticCurveTo(0, -ry * .1, -rx * .5, cy + ry * .85); g.ellipse(0, cy, rx, ry, 0, Math.PI * .62, Math.PI * 2.38); g.quadraticCurveTo(0, -ry * .1, L * .026, 0); g.closePath(); });
+    g.save(); g.beginPath(); g.ellipse(0, cy, rx * .84, ry * .84, 0, 0, TAU); g.clip();
+    if (hd) { const [cv] = hd, k = (ry * 1.6) / cv.height; g.save(); g.translate(0, cy); g.scale(1, -1); g.drawImage(cv, -cv.width * k / 2, -ry * .8, cv.width * k, ry * 1.6); g.restore(); }
+    g.fillStyle = 'rgba(255, 255, 255, .28)'; g.beginPath(); g.ellipse(-rx * .4, cy - ry * .35, rx * .18, ry * .32, -.4, 0, TAU); g.fill();  // a shine
+    if (e.xEyes) {  // knocked out
+      g.strokeStyle = '#1d0d00'; g.lineWidth = L * .014;
+      for (const sx of [-1, 1]) { const ex = sx * rx * .32, ey = cy + ry * .18, r = rx * .12; g.beginPath(); g.moveTo(ex - r, ey - r); g.lineTo(ex + r, ey + r); g.moveTo(ex + r, ey - r); g.lineTo(ex - r, ey + r); g.stroke(); }
+    }
+    g.restore(); g.restore();
+  }
+  g.restore();
+}
+function drawEscalator(e) {  // a moving staircase from the top (where they were standing) down and away from the caster
+  const s = e.esc, x0 = s.x * W, x1 = clamp(s.x + s.dir * .26, .04, .96) * W, yb = feetY(s.z), up = e.h * .95 * Math.min(1, e.st * 3), rise = Math.min(1, e.st * 3);
+  const sink = e.st > CURSE.escalator.t - .5 ? (e.st - (CURSE.escalator.t - .5)) * 2 : 0;
+  ctx.save(); ctx.globalAlpha = Math.max(0, 1 - sink);
+  const top = yb - up, w = e.h * .16;
+  ctx.fillStyle = '#5b6670'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = e.h * .012; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(x0 - s.dir * w, yb); ctx.lineTo(x0 - s.dir * w, top); ctx.lineTo(x0 + s.dir * w * .4, top); ctx.lineTo(x1 + s.dir * w * .6, yb); ctx.closePath(); ctx.fill(); ctx.stroke();
+  const n = 9, ph = (S.t * 3) % 1;  // the steps keep moving down
+  ctx.strokeStyle = '#c9d3dc'; ctx.lineWidth = e.h * .01;
+  for (let i = 0; i < n; i++) {
+    const p = (i + ph) / n, x = x0 + s.dir * w * .4 + (x1 - x0 - s.dir * w * .4) * p, y = top + (yb - top) * p;
+    ctx.beginPath(); ctx.moveTo(x - s.dir * w * .5, y); ctx.lineTo(x, y); ctx.lineTo(x, y + (yb - top) / n); ctx.stroke();
+  }
+  ctx.strokeStyle = '#1d232a'; ctx.lineWidth = e.h * .025; ctx.beginPath(); ctx.moveTo(x0 - s.dir * w, top - e.h * .12 * rise); ctx.lineTo(x1 + s.dir * w * .2, yb - e.h * .12 * rise); ctx.stroke();  // the handrail
+  ctx.restore();
+}
+function curseFx(e) {  // what floats around a cursed fighter
+  const h = e.h, t = S.t + e.seed, [hx, hy] = at(e, .9);
+  if (e.curse === 'ice' && e.state === 'cursed') {
+    ctx.save(); ctx.fillStyle = 'rgba(170, 220, 255, .38)'; ctx.strokeStyle = 'rgba(255, 255, 255, .85)'; ctx.lineWidth = h * .01;
+    ctx.beginPath(); ctx.roundRect(e.X - h * .2, e.Y - h * 1.08, h * .4, h * 1.1, h * .04); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(e.X - h * .14, e.Y - h * .95); ctx.lineTo(e.X - h * .05, e.Y - h * .7); ctx.moveTo(e.X + h * .1, e.Y - h * .9); ctx.lineTo(e.X + h * .15, e.Y - h * .78); ctx.stroke();
+    ctx.restore();
+  } else if (e.curse === 'fart') {
+    for (let i = 0; i < 7; i++) {
+      const q = t * 1.3 + i * 1.7, r = h * (.08 + .03 * Math.sin(t * 3 + i));
+      ctx.fillStyle = `rgba(150, 200, 60, ${.28 + .1 * Math.sin(t * 2 + i)})`; ctx.beginPath(); ctx.arc(e.X + Math.cos(q) * h * .2, e.Y - h * (.25 + .2 * Math.sin(q * .7)), r, 0, TAU); ctx.fill();
+    }
+    ctx.fillStyle = '#1d232a';
+    for (let i = 0; i < 3; i++) { const q = t * 7 + i * 2; ctx.beginPath(); ctx.arc(hx + Math.sin(q) * h * .14, hy - h * .05 + Math.sin(q * 2) * h * .05, h * .008, 0, TAU); ctx.fill(); }  // flies
+  } else if (e.curse === 'smooch') {
+    for (let i = 0; i < 3; i++) { const q = t * 3 + i * TAU / 3; heart(hx + Math.cos(q) * h * .13, hy - h * .08 + Math.sin(q) * h * .04, h * .03); }
+    ctx.strokeStyle = '#e8173a'; ctx.lineWidth = h * .012; ctx.beginPath(); ctx.arc(hx + e.face * h * .03, hy + h * .02, h * .02, .2, Math.PI - .2); ctx.stroke();  // lipstick
+  } else if (e.curse === 'cake') {
+    ctx.fillStyle = '#fffaf0'; ctx.strokeStyle = '#f2d8c0'; ctx.lineWidth = h * .006;
+    ctx.beginPath(); ctx.ellipse(hx, hy, h * .075, h * .06, 0, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffc2d6'; ctx.beginPath(); ctx.ellipse(hx - h * .02, hy - h * .03, h * .035, h * .02, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#d0021b'; ctx.beginPath(); ctx.arc(hx + h * .01, hy - h * .055, h * .014, 0, TAU); ctx.fill();  // the cherry on top
+  } else if (e.curse === 'disco' && e.state === 'cursed') {
+    for (let i = 0; i < 8; i++) { const q = t * 4 + i * TAU / 8; ctx.fillStyle = `hsl(${(i * 45 + t * 200) % 360} 90% 70%)`; ctx.fillRect(e.X + Math.cos(q) * h * .25, e.Y - h * .5 + Math.sin(q) * h * .35, h * .02, h * .02); }
+  } else if (e.curse === 'dizzy') {
+    for (let i = 0; i < 3; i++) { const q = t * 5 + i * TAU / 3; star(hx + Math.cos(q) * h * .09, hy - h * .12 + Math.sin(q) * h * .025, h * .02, '#ffe14d'); }
+    label('?', hx + Math.sin(t * 3) * h * .1, hy - h * .2, h * .08, 'center', '#ffe14d');
+  } else if (e.curse === 'balloon' && e.state === 'cursed') {
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, h * .005); ctx.beginPath(); ctx.moveTo(e.X, e.Y); ctx.quadraticCurveTo(e.X + Math.sin(t * 3) * h * .05, e.Y + h * .15, e.X, e.Y + h * .3); ctx.stroke();
+  }
+}
+function heart(x, y, r) {
+  ctx.fillStyle = '#ff4d6d'; ctx.beginPath(); ctx.moveTo(x, y + r * .9);
+  ctx.bezierCurveTo(x - r * 1.6, y - r * .2, x - r * .6, y - r * 1.4, x, y - r * .5); ctx.bezierCurveTo(x + r * .6, y - r * 1.4, x + r * 1.6, y - r * .2, x, y + r * .9); ctx.fill();
+}
+function drawMatrix() {  // Moses: the room dims and drops of light fall down still columns of glyphs (white head, green tail)
+  const gs = glyphs(), a = clamp(Math.min(S.matrix, (S.matrixT0 || S.matrix) - S.matrix) * 2.5, 0, 1) * (S.matrixA || 1);
+  ctx.save(); ctx.fillStyle = `rgba(0, 16, 6, ${.55 * a})`; ctx.fillRect(0, 0, W, H);
+  if (!gs) return ctx.restore();
+  const cell = Math.max(18 * DPR, Math.round(H * .045)), cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
+  ctx.globalCompositeOperation = 'lighter';
+  for (let c = 0, n = 0; c < cols && n < 450; c++) {
+    const seed = ((c * 9301 + 49297) % 233280) / 233280, speed = 8 + seed * 10, len = 5 + Math.floor(seed * 8);
+    const head = Math.floor((S.t * speed + seed * 97) % (rows + len + 8));
+    for (let j = 0; j < len; j++, n++) {
+      const row = head - j;
+      if (row < 0 || row > rows) continue;
+      ctx.globalAlpha = a * (j ? Math.pow(1 - j / len, 2) * .9 : 1);
+      const gi = (c * 7 + row * 13 + Math.floor(S.t * 1.5 + seed * 9)) % gs.n;
+      ctx.drawImage(gs.c, gi * gs.cs, j ? gs.cs : 0, gs.cs, gs.cs, c * cell, row * cell, cell, cell);
+    }
+  }
+  ctx.restore();
 }
 function drawSpot(s) {  // the room's objects, as paper cut-outs with a white rim like everyone else
   const h = tall(s.z), u = h / 100;
@@ -1345,24 +1831,51 @@ function drawFx(f) {
     c.addColorStop(0, `rgba(255, 255, 240, ${.55 * b})`); c.addColorStop(1, 'rgba(255, 255, 240, 0)');
     ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x + f.face * L, f.y - f.r * .45); ctx.lineTo(f.x + f.face * L, f.y + f.r * .45); ctx.closePath(); ctx.fill();
     ctx.restore();
+  } else if (f.k === 'dmg') {  // pops in at 1.4x, settles in 0.08 s, rises, fades in its last quarter second
+    const age = f.max - f.life, s = f.size * (age < .08 ? 1.4 - 5 * age : 1);
+    ctx.globalAlpha = Math.min(1, f.life / .25); label(f.text, f.x, f.y - H * .08 * (age / f.max), s, 'center', f.color);
+  } else if (f.k === 'burst') {  // a special's super flash: a ring of light around the caster
+    const r = f.r * (1.4 - a * .9); ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a;
+    const g = ctx.createRadialGradient(f.x, f.y, r * .2, f.x, f.y, r); g.addColorStop(0, 'rgba(255, 255, 255, .9)'); g.addColorStop(.6, f.color); g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, TAU); ctx.fill(); ctx.restore();
   } else if (f.k === 'conf') {
     ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.spin); ctx.fillStyle = f.color; ctx.fillRect(-f.r, -f.r * .5, f.r * 2, f.r); ctx.restore();
   }
   ctx.globalAlpha = 1;
 }
+function spHint(i) {  // which button casts it, for the people at this screen
+  const me = net ? i === mySlot() : ctrl[i] !== 'cpu';
+  if (!me) return '';
+  if (touch.on) return '';
+  if (ctrl[i] === 'pad') return '· RB';
+  const m = layout()[net ? 0 : mode === '2p' ? i : 0];
+  return m && m.special ? '· ' + keyName(m.special[0]) : '';
+}
 function hud() {
-  const m = W * .03, bw = W * .38, bh = H * .032, y = H * .05;
+  const m = W * .03, bw = W * .38, bh = Math.max(16 * DPR, H * .045), y = H * .05, sh = Math.max(7 * DPR, H * .02), dy = sh + H * .018;
   S.players.forEach((p, i) => {
-    const x = i ? W - m - bw : m, f = p.hp / HP, fw = bw * f;
+    const x = i ? W - m - bw : m, f = p.hp / HP, fw = bw * f, tw = bw * Math.max(f, (p.trail ?? p.hp) / HP), low = p.hp <= 28, al = i ? 'right' : 'left';
     ctx.fillStyle = 'rgba(0, 0, 0, .55)'; ctx.fillRect(x, y, bw, bh);
-    ctx.fillStyle = f > .5 ? '#ffd23f' : f > .25 ? '#ff9d1a' : '#ff3b2f'; ctx.fillRect(i ? x + bw - fw : x, y, fw, bh);
+    ctx.fillStyle = '#D55E00'; ctx.fillRect(i ? x + bw - tw : x, y, tw, bh);  // the chunk just lost, draining a moment later
+    ctx.globalAlpha = low ? .85 + .15 * Math.sin(S.t * 9.4) : 1; ctx.fillStyle = '#F0E442'; ctx.fillRect(i ? x + bw - fw : x, y, fw, bh); ctx.globalAlpha = 1;
     ctx.lineWidth = Math.max(2, H * .004); ctx.strokeStyle = '#fff'; ctx.strokeRect(x, y, bw, bh);
-    label(p.name.toUpperCase(), i ? x + bw : x, y + bh + H * .048, H * .038, i ? 'right' : 'left');
-    if (p.comboN >= 2 && S.t - p.comboT < 1.3) label(`${p.comboN} HITS`, i ? x + bw : x, y + bh + H * .135, H * .05 * (1 + .1 * Math.max(0, 1 - (S.t - p.comboT) * 6)), i ? 'right' : 'left', '#ff6ad5');
+    const ns = Math.min(bh * .72, Math.max(14 * DPR, H * .04)) * (low ? 1.12 : 1), shake = S.t - (p.hurtAt ?? -9) < .2 ? (R() - .5) * 4 * DPR : 0;  // HP left, at the end that doesn't move
+    label(String(Math.ceil(p.hp)), (i ? x + bw - bh * .3 : x + bh * .3) + shake, y + bh / 2 + ns * .5, ns, al, low ? '#D55E00' : '#fff', 'pixel');
+    const sy = y + bh + H * .008, sw = W * .25, sx = i ? x + bw - sw : x, full = p.sp >= 1;  // the star bar: eight pips
+    ctx.fillStyle = 'rgba(0, 0, 0, .55)'; ctx.fillRect(sx, sy, sw, sh);
+    for (let j = 0; j < 8; j++) if ((p.sp || 0) >= (j + 1) / 8 - 1e-6) {
+      ctx.fillStyle = full ? `hsl(${(S.t * 300 + j * 30) % 360} 95% 65%)` : '#CC79A7'; ctx.fillRect(sx + (i ? sw - (j + 1) * sw / 8 : j * sw / 8) + 1, sy + 1, sw / 8 - 2, sh - 2);
+    }
+    if (full) label(`SPECIAL READY ${spHint(i)}`, sx + sw / 2, sy + sh * .85, sh * .8, 'center', '#ffffff', 'pixel');
+    label(p.name.toUpperCase(), i ? x + bw : x, y + bh + H * .048 + dy, H * .038, al);
+    if (p.comboN >= 2 && S.t - p.comboT < 1) {
+      const cy = y + bh + H * .15 + dy, pop = 1 + .15 * Math.max(0, 1 - (S.t - p.comboT) * 6);
+      label(`${p.comboN} HITS`, i ? x + bw : x, cy, H * .07 * pop, al, '#CC79A7'); label(`${Math.round(p.comboDmg || 0)} DMG`, i ? x + bw : x, cy + H * .055, H * .045, al, '#ffffff');
+    }
     const who = net ? (i === mySlot() ? 'YOU' : 'ONLINE') : ctrl[i] === 'cpu' ? (mode === 'cpu' ? `CPU · LV${S.level} ${LEVELS[S.level - 1].name}` : 'CPU') : ctrl[i] === 'pad' ? 'PAD' : 'KEYS';
     label(who, i ? x + bw : x, y - H * .012, H * .018, i ? 'right' : 'left', '#ffe066', 'pixel');
     for (let w = 0; w < 2; w++) {  // round wins, best of 3
-      const cx = i ? x + bw - H * .02 - w * H * .03 : x + H * .02 + w * H * .03, cy = y + bh + H * .07;
+      const cx = i ? x + bw - H * .02 - w * H * .03 : x + H * .02 + w * H * .03, cy = y + bh + H * .07 + dy;
       ctx.beginPath(); ctx.arc(cx, cy, H * .01, 0, TAU); ctx.fillStyle = match.wins[i] > w ? '#ffd23f' : 'rgba(0, 0, 0, .5)'; ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, H * .002); ctx.stroke();
     }
@@ -1370,20 +1883,37 @@ function hud() {
   label(String(Math.max(0, Math.ceil(S.clock))), W / 2, y + bh, H * .045, 'center', '#fff', 'pixel');
   if (mode === 'cpu') label(`LEVEL ${S.level}/3`, W / 2, y + bh + H * .035, H * .016, 'center', '#ffe066', 'pixel');
   if (S.banner && (S.phase !== 'fight' || S.bannerT > 0)) {
-    const size = H * (S.banner.length > 10 ? .085 : .14), g = ctx.createLinearGradient(0, H * .42 - size, 0, H * .42);
+    const size = Math.min(H * (S.banner.length > 10 ? .085 : .14), W * 1.25 / Math.max(1, S.banner.length)), g = ctx.createLinearGradient(0, H * .42 - size, 0, H * .42);
     g.addColorStop(0, '#fffbd0'); g.addColorStop(.5, '#ffd23f'); g.addColorStop(1, '#ff7b00');
     label(S.banner, W / 2, H * .42, size, 'center', g);
     if (S.sub) label(S.sub, W / 2, H * .42 + H * .07, H * .035, 'center', '#fff', 'pixel');
   }
   if (S.waiting) label(S.waiting, W / 2, H * .55, H * .03, 'center', '#fff', 'pixel');
+  if (S.cutin && S.cutin.e) cutIn(S.cutin);
+  if (padSp) { const me = S.players[net ? mySlot() : 0], on = !!me && me.sp >= 1; if (padSp.classList.contains('ready') !== on) padSp.classList.toggle('ready', on); }
+}
+function cutIn(c) {  // the caster's face slides in on a slanted band during a special
+  const e = c.e, k = clamp(Math.min((1.1 - c.t) * 6, c.t * 4), 0, 1), left = S.players.indexOf(e) !== 1, bh2 = H * .22, y0 = H * .62, hd = headOf(e);
+  ctx.save(); ctx.globalAlpha = k; ctx.translate(left ? -(1 - k) * W * .3 : (1 - k) * W * .3, 0);
+  ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0 - H * .08); ctx.lineTo(W, y0 - H * .08 + bh2); ctx.lineTo(0, y0 + bh2); ctx.closePath();
+  ctx.fillStyle = (CURSE[e.cast] || CURSE.pig).color; ctx.globalAlpha = k * .85; ctx.fill(); ctx.globalAlpha = k;
+  ctx.lineWidth = Math.max(3, H * .006); ctx.strokeStyle = '#1d0d00'; ctx.stroke(); ctx.clip();
+  if (hd) { const [cv] = hd, hh = bh2 * 1.25, w = cv.width * hh / cv.height, x = left ? W * .14 : W * .86 - w; ctx.drawImage(cv, x, y0 - H * .07, w, hh); }
+  label(String((spOf(e.k).name || '')).toUpperCase().slice(0, 24), left ? W * .62 : W * .38, y0 + bh2 * .62, Math.min(H * .07, W * 1.1 / 24), 'center', '#1d0d00');
+  ctx.restore();
 }
 function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#120d08'; ctx.fillRect(0, 0, W, H);
   const sh = reduce ? 0 : S.shake; S.shake *= .85;
   ctx.translate((R() - .5) * sh, (R() - .5) * sh);
-  if (bg) { const s = Math.max(W / bg.width, H / bg.height); ctx.drawImage(bg, (W - bg.width * s) / 2, (H - bg.height * s) / 2, bg.width * s, bg.height * s); }
+  fitPic();
+  if (bg) {
+    ctx.drawImage(bg, pic.left, pic.top, pic.w, pic.h);
+    const end = pic.top + pic.h; if (end < H) ctx.drawImage(bg, 0, bg.height - 2, bg.width, 2, pic.left, end, pic.w, H - end);  // stretch the floor's last row down
+  }
   S.puddles.forEach(drawPuddle);
+  if (S.matrix > 0) drawMatrix();
   if (S.ufo) drawBeam(S.ufo);
   const order = [...SPOTS.map(o => [o.z - .004, 3, o]), ...S.people.filter(o => !o.gone && o.state !== 'loo').map(o => [o.z, 0, o]), ...S.items.filter(i => !i.held).map(o => [o.z - .001, 1, o]), ...S.shots.map(o => [o.z + .002, 2, o])];
   for (const [, k, o] of order.sort((a, b) => a[0] - b[0])) (k === 0 ? drawPerson : k === 1 ? drawLoose : k === 2 ? drawShot : drawSpot)(o);
@@ -1392,6 +1922,7 @@ function draw() {
   if (S.disco > 0) drawDisco();
   S.doves.forEach(drawDove);
   if (S.ufo) drawUfo(S.ufo);
+  if (S.dimBy && S.freeze > 0) { ctx.fillStyle = 'rgba(0, 0, 0, .5)'; ctx.fillRect(0, 0, W, H); drawPerson(S.dimBy); }  // super freeze: only the caster lit
   S.people.forEach(e => e.say && !e.gone && drawSay(e));
   S.fx.forEach(drawFx);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1425,7 +1956,8 @@ async function newMatch(pair, level = 1, round = 0) {
   const [a, b] = await Promise.all(pair.map(art)), cast = (await castPool()).filter(c => !pair.includes(c.k));
   if (run !== startSeq) return;  // the game was stopped while the cut-outs loaded
   const players = [person(pair[0], a, 'fighter', .3, .55), person(pair[1], b, 'fighter', .7, .55)];
-  players.forEach((p, i) => { p.lv = LEVELS[mode === 'cpu' && i === 1 ? level - 1 : 1]; });
+  players.forEach((p, i) => { p.lv = LEVELS[mode === 'cpu' && i === 1 ? level - 1 : 1]; p.sp = match.sp[i] || 0; });
+  if (players.some(p => spOf(p.k).type === 'spoon')) glyphs();  // Moses is here: fetch his glyphs early
   if (net) { players[0].name = net.link.me.name; players[1].name = net.link.them.name; }
   const guests = [];
   for (const c of shuffle(cast.slice()).slice(0, 4)) {  // a few are already here; the rest drift in and out
@@ -1444,6 +1976,7 @@ async function newMatch(pair, level = 1, round = 0) {
   snd('bell');
 }
 function next() {
+  match.sp = S.winner && S.final ? [0, 0] : S.players.map(p => p.sp || 0);  // a bar earned in one round carries into the next
   if (!S.winner || !S.final) return newMatch(S.pair, S.level, S.round + 1);  // the next round (or a drawn one again): same fighters, a new scene
   const won = S.winner === S.players[0], wi = S.players.indexOf(S.winner);
   match.wins = [0, 0]; match.used = [];
@@ -1463,7 +1996,7 @@ function rival() {  // the next rung of the ladder: an android nobody has beaten
 // ---- online. The host packs everything the guest draws into its match-room presence (~30 times a second, < 4 KB); the
 // guest unpacks it, eases toward it, replays the sounds and effects, and moves its own fighter itself while it's free.
 const STATES = ['idle', 'walk', 'attack', 'hit', 'down', 'cry', 'getup', 'slip', 'ko', 'faint', 'flip', 'beam', 'fall', 'puke', 'win', 'dazed',
-                'drink', 'horse', 'rider', 'pee', 'smile', 'shield', 'aim', 'shoot', 'eat', 'dance', 'sit', 'gift', 'booth', 'watch', 'loo', 'block', 'launched', 'grabbed', 'throw'];
+                'drink', 'horse', 'rider', 'pee', 'smile', 'shield', 'aim', 'shoot', 'eat', 'dance', 'sit', 'gift', 'booth', 'watch', 'loo', 'block', 'launched', 'grabbed', 'throw', 'roll', 'whiff', 'cast', 'cursed', 'bent'];
 const THINGS = ['fork', 'bottle', 'champagne', 'shoe', 'plate', 'raygun', 'cork', 'laser', 'gift'], MOVE_KEYS = Object.keys(MOVES);
 const ROLES = ['fighter', 'guest', 'photog'], WET = ['booze', 'puke', 'pee'], PHASES = ['intro', 'fight', 'ko', 'finish', 'comic'], UFO = ['in', 'beam', 'out'];
 const bytes = s => new TextEncoder().encode(s).length;
@@ -1472,12 +2005,16 @@ function pack() {
   while (evs.length && now - evs[0][1] > 700) evs.shift();
   const d = {
     v: 1, sg: S.stage, ph: PHASES.indexOf(S.phase), pt: q2(S.phaseT), cl: q2(S.clock), rd: S.round, w: match.wins, bn: S.banner, bt: q2(S.bannerT), sb: S.sub,
-    cb: S.players.map(p => p.comboN >= 2 && S.t - p.comboT < 1.3 ? p.comboN : 0), dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
+    cb: S.players.map(p => p.comboN >= 2 && S.t - p.comboT < 1.3 ? p.comboN : 0), cd: S.players.map(p => Math.round(p.comboDmg || 0)),
+    sp: S.players.map(p => q2(p.sp || 0)), mx: q2(S.matrix || 0), mt: q2(S.matrixT0 || 0), ma: q2(S.matrixA || 1), gd: S.players.map(p => q2(p.guard ?? 1)),
+    ci: S.cutin ? [S.cutin.e.id, q2(S.cutin.t)] : 0, dm: S.dimBy && S.freeze > 0 ? S.dimBy.id : 0,
+    ct: S.players.map(p => p.state === 'cast' && p.castX != null ? [q3(p.castX), q3(p.castZ), CURSES.indexOf(p.cast)] : 0), nt: S.neoT > 0 && S.neo ? [S.neo.id, q2(S.neoT)] : 0,
+    es: S.players.map(p => p.esc ? [q3(p.esc.x), q3(p.esc.z), p.esc.dir] : 0), dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
     P: S.people.filter(e => !e.gone).map(e => [e.id, e.k === 'photog' ? -1 : e.k, ROLES.indexOf(e.role), q3(e.x), q3(e.z), q2(e.y), e.face,
       STATES.indexOf(e.state), q2(e.st), Math.round(e.hp), q2(e.rot), e.item ? THINGS.indexOf(e.item.type) : e.prop ? 20 + THINGS.indexOf(e.prop) : -1,
       e.item ? e.item.ammo : 0, MOVE_KEYS.findIndex(k => MOVES[k] === e.move),
       (e.flash > 0) | (e.run << 1) | ((e.cheer > 0) << 2) | ((e.aimT > 0) << 3) | (e.threw << 4) | ((e.state === 'walk' || e.state === 'horse') << 5),
-      e.say ? e.say.text : 0]),
+      e.say ? e.say.text : 0, e.curse ? CURSES.indexOf(e.curse) : -1]),
     I: S.items.filter(i => !i.held).map(i => [THINGS.indexOf(i.type), q3(i.x), q3(i.z), q2(i.y), i.ammo]),
     X: S.shots.map(s => [THINGS.indexOf(s.type), q3(s.x), q3(s.z), q2(s.y), Math.sign(s.vx), q2(s.spin % TAU)]),
     U: S.puddles.slice(-14).map(p => [q3(p.x), q3(p.z), q3(p.r), WET.indexOf(p.kind), q2(p.life)]),
@@ -1498,7 +2035,15 @@ function unpack(d) {
   S.phase = PHASES[d.ph] || 'fight'; S.phaseT = +d.pt || 0; S.clock = +d.cl || 0; S.round = d.rd; match.wins = Array.isArray(d.w) ? d.w : [0, 0];
   S.banner = String(d.bn || ''); S.bannerT = +d.bt || 0; S.sub = String(d.sb || ''); S.disco = +d.dc || 0; S.white[1] = Math.max(S.white[1], +d.wh || 0);
   if (d.cf && !S.confetti) S.confetti = 5;
-  if (Array.isArray(d.cb)) S.players.forEach((p, i) => { const c = +d.cb[i] || 0; if (c >= 2) { p.comboN = c; p.comboT = S.t; } });
+  if (Array.isArray(d.cb)) S.players.forEach((p, i) => { const c = +d.cb[i] || 0; if (c >= 2) { p.comboN = c; p.comboT = S.t; p.comboDmg = Array.isArray(d.cd) ? +d.cd[i] || 0 : 0; } });
+  if (Array.isArray(d.sp)) S.players.forEach((p, i) => { p.sp = clamp(+d.sp[i] || 0, 0, 1); });
+  S.matrix = clamp(+d.mx || 0, 0, 9); S.matrixT0 = clamp(+d.mt || 0, 0, 9); S.matrixA = clamp(+d.ma || 1, 0, 1);
+  if (Array.isArray(d.gd)) S.players.forEach((p, i) => { p.guard = clamp(+d.gd[i] || 0, 0, 1); });
+  if (Array.isArray(d.ct)) S.players.forEach((p, i) => { const c = d.ct[i]; if (Array.isArray(c)) { p.castX = +c[0] || 0; p.castZ = +c[1] || 0; p.cast = CURSES[c[2]] || 'pig'; } else p.castX = null; });
+  S.cutin = Array.isArray(d.ci) && S.byId.get(d.ci[0]) ? { e: S.byId.get(d.ci[0]), t: clamp(+d.ci[1] || 0, 0, 2) } : null;
+  S.dimBy = d.dm ? S.byId.get(d.dm) || null : null; if (S.dimBy) S.freeze = .05;
+  if (Array.isArray(d.nt)) { S.neo = S.byId.get(d.nt[0]) || null; S.neoT = clamp(+d.nt[1] || 0, 0, 9); if (S.neoT > 0) glyphs(); } else S.neoT = 0;
+  if (Array.isArray(d.es)) S.players.forEach((p, i) => { const q = d.es[i]; p.esc = Array.isArray(q) ? { x: +q[0] || 0, z: +q[1] || 0, dir: q[2] < 0 ? -1 : 1 } : null; });
   if (was !== S.phase && S.phase === 'intro') S.fx = [];
   const seen = new Set(), fighters = [];
   for (const a of d.P.slice(0, 40)) {
@@ -1516,7 +2061,9 @@ function unpack(d) {
       if (Math.abs(x - e.x) > .15 || Math.abs(z - e.z) > .2) { e.x = x; e.z = z; }
       if (state !== e.state) { e.state = state; e.st = stt; } else if (Math.abs(e.st - stt) > .2) e.st = stt;
     }
-    e.hp = hp; e.trot = rot;
+    if (hp < e.hp) e.hurtAt = S.t;
+    e.hp = hp; e.trot = rot; e.curse = CURSES[a[16]] || null;
+    if (local && y > e.y + .1) { e.y = y; e.vy = Math.max(e.vy || 0, 1.2); }  // the host started a jump for me (after an uppercut): fly it
     e.item = thing >= 0 && thing < 20 ? { type: THINGS[thing], ammo } : null; e.prop = thing >= 20 ? THINGS[thing - 20] : null;
     e.move = MOVES[MOVE_KEYS[mv]] || null;
     e.flash = flags & 1 ? .05 : 0; e.run = !!(flags & 2); e.cheer = flags & 4 ? .1 : 0; e.aimT = flags & 8 ? .05 : 0; e.threw = !!(flags & 16); e.moving = !!(flags & 32);
@@ -1566,20 +2113,24 @@ function replay(ev) {
   else if (kind === 'w') fx({ k: 'swoosh', x: a[0] * W, y: a[1] * H, face: a[2], r: a[3] * H, life: .12, max: .12 });
   else if (kind === 'v') { const e = S.byId.get(a[0]); if (e) talk(e, String(a[1])); }
   else if (kind === 'f') fx({ k: 'flash', x: a[0] * W, y: a[1] * H, face: a[2], r: a[3] * H, life: .35, max: .35 });
+  else if (kind === 'd') fx({ k: 'dmg', text: String(a[0]).slice(0, 6), x: n(a[1], -1, 2, 0) * W, y: n(a[2], -1, 2, 0) * H, size: n(a[3], 0, .2, .05) * H, color: String(a[4]).slice(0, 9), life: .8, max: .8 });
+  else if (kind === 'b') fx({ k: 'burst', x: a[0] * W, y: a[1] * H, r: n(a[2], 0, 2, .3) * H, color: String(a[3]).slice(0, 9), life: .5, max: .5 });
 }
 function replica(dt) {  // the online guest's frame: no game logic, just easing toward the host's picture and moving my own fighter
   S.t += dt; S.phaseT += dt; S.bannerT -= dt;
   if (S.phase === 'fight') S.clock -= dt;
   const me = S.players[1], b = readControls(1), k = Math.min(1, dt * 14);
-  for (const key of ['punch', 'kick', 'grab', 'jump']) { if (b[key] && !S.held[key]) S.presses[key]++; S.held[key] = b[key]; }
-  tapped.clear();
+  if (me && me.curse === 'dizzy') { b.mx = -b.mx; b.mz = -b.mz; }  // cursed: left is right
+  const rl = rollTap(1, b); if (rl) { S.presses.roll++; S.rollDir = rl; }
+  for (const key of BTN) { if (b[key] && !S.held[key]) S.presses[key]++; S.held[key] = b[key]; }
+  tapped.clear(); touch.tapped.clear();
   subs(dt);
   for (const e of S.people) {
     e.st += dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt; e.talk -= dt;
     if (e.say && (e.say.t -= dt) <= 0) e.say = null;
     if (e === me && e.hostFree && S.phase === 'fight') {
-      const dirX = Math.sign(b.mx); e.runT = dirX && dirX === e.runDir && Math.abs(b.mx) > .5 ? (e.runT || 0) + dt : 0; e.runDir = dirX; e.running = e.runT > .35;
-      e.vx = b.mx * .3 * (e.running ? 1.75 : 1); e.vz = b.mz * .18;
+      const dirX = Math.sign(b.mx); e.runT = dirX && dirX === e.runDir && Math.abs(b.mx) > .85 ? (e.runT || 0) + dt : 0; e.runDir = dirX; e.running = e.runT > RUN_HOLD;
+      stepSpeed(e, b.mx, b.mz);
       if (b.mx) e.face = Math.sign(b.mx);
       e.state = b.mx || b.mz ? 'walk' : 'idle';
       if (b.jump && !S.jumpHeld && !e.y) e.vy = 2.3;
@@ -1600,7 +2151,7 @@ function replica(dt) {  // the online guest's frame: no game logic, just easing 
   ambient(dt);
   if (performance.now() - sentAt > 30 && me) {
     sentAt = performance.now();
-    net.link.send({ n: ++inSeq, in: { mx: b.mx, mz: b.mz, p: ['punch', 'kick', 'grab', 'jump'].map(x => S.presses[x]) },
+    net.link.send({ n: ++inSeq, in: { mx: b.mx, mz: b.mz, p: BTN.map(x => S.presses[x]), r: [S.presses.roll, ...(S.rollDir || [0, 0])] },
                     me: [q3(me.x), q3(me.z), q2(me.y), me.face, me.state === 'walk' ? (me.running ? 2 : 1) : 0] });
   }
   if (!S.people.length) S.waiting = 'CONNECTING…';
@@ -1628,15 +2179,95 @@ function frame(t) {
   if (net && performance.now() - sentAt > 33) { sentAt = performance.now(); net.link.send(pack()); }
   draw();
 }
+const PADB = [['punch', 'PUNCH', 192, 78, 68], ['kick', 'KICK', 108, 90, 68], ['grab', 'GRAB', 212, 160, 68], ['jump', 'JUMP', 120, 174, 68],
+  ['roll', 'ROLL', 282, 60, 56], ['special', '★', 84, 254, 60]];  // button, label, centre from the right and from the bottom, diameter (px on an 844x390 phone)
+let padSp = null;
+function layoutPad() {  // scale the pad to this screen
+  const el = root && root.querySelector('.tpad');
+  if (!el) return;
+  const k = clamp(root.getBoundingClientRect().height / 390, .8, 1.4);
+  el.querySelectorAll('.b').forEach((b, i) => {
+    const [, , cx, cy, d] = PADB[i];
+    Object.assign(b.style, { width: d * k + 'px', height: d * k + 'px', right: `calc(${(cx - d / 2) * k}px + env(safe-area-inset-right, 0px))`, bottom: `calc(${(cy - d / 2) * k}px + env(safe-area-inset-bottom, 0px))` });
+  });
+  const base = el.querySelector('.base');
+  if (!base.classList.contains('on')) Object.assign(base.style, { left: `calc(${125 * k}px + env(safe-area-inset-left, 0px))`, top: `calc(100% - ${99 * k}px)` });
+}
+function touchPad() {  // phones: a stick that appears under the left thumb, six buttons under the right; the stick and buttons feed the same input as the keys
+  if (!coarse()) return;
+  root.classList.add('touch');
+  if (root.querySelector('.tpad')) return layoutPad();
+  const st = document.createElement('style'); st.id = 'tpad-css';
+  st.textContent = `#brawl.touch .brawl-bar { display: none; }
+  .tpad { position: absolute; inset: 0; z-index: 6; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  .tpad .zone { position: absolute; bottom: 0; height: 82%; pointer-events: auto; touch-action: none; }
+  .tpad .left { left: 0; width: 45%; } .tpad .right { right: 0; width: 55%; }
+  .tpad .base { position: absolute; width: 116px; height: 116px; margin: -58px 0 0 -58px; border-radius: 50%; border: 3px solid rgba(255,255,255,.6); background: rgba(0,0,0,.22); opacity: .25; }
+  .tpad .base.on { opacity: 1; }
+  .tpad .knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: rgba(255,255,255,.8); }
+  .tpad .b { position: absolute; box-sizing: border-box; border-radius: 50%; border: 3px solid rgba(255,255,255,.75); color: #fff; display: grid; place-items: center;
+    font: 9px/1 "Press Start 2P", monospace; background: rgba(0,0,0,.35); opacity: .6; }
+  .tpad .b.on { background: rgba(240,228,66,.9); color: #1d0d00; opacity: 1; }
+  .tpad .b.special { background: rgba(204,121,167,.5); font-size: 20px; } .tpad .b.special.ready { opacity: 1; animation: tpulse .5s infinite alternate; }
+  @keyframes tpulse { to { box-shadow: 0 0 18px 6px #CC79A7; } }
+  .tpad .quit { position: absolute; top: calc(6px + env(safe-area-inset-top, 0px)); left: calc(50% + 34px); pointer-events: auto; height: 32px; border-radius: 16px;
+    border: 2px solid rgba(255,255,255,.6); background: rgba(0,0,0,.45); color: #fff; font: 9px/1 "Press Start 2P", monospace; padding: 0 10px; touch-action: manipulation; }
+  @media (orientation: portrait) { .tpad::after { content: 'TURN YOUR PHONE SIDEWAYS'; position: absolute; inset: 0; display: grid; place-items: center; padding: 24px;
+    background: rgba(12,8,4,.94); color: #ffd23f; font: 14px/1.6 "Press Start 2P", monospace; text-align: center; pointer-events: auto; } }`;
+  document.head.append(st);
+  const el = document.createElement('div'); el.className = 'tpad';
+  el.innerHTML = `<div class="zone left"><div class="base"><div class="knob"></div></div></div><div class="zone right"></div>
+    ${PADB.map(([b, t]) => `<div class="b ${b}" data-b="${b}" aria-hidden="true">${t}</div>`).join('')}<button type="button" class="quit">✕</button>`;
+  root.append(el); padSp = el.querySelector('.b.special'); layoutPad();
+  const left = el.querySelector('.left'), right = el.querySelector('.right'), base = el.querySelector('.base'), knob = el.querySelector('.knob'), btns = [...el.querySelectorAll('.b')];
+  const take = () => { touch.on = true; if (!net && mode === 'demo') ctrl[0] = 'keys'; };
+  let stick = null;  // { id, cx, cy }
+  const move = e => {
+    let dx = e.clientX - stick.cx, dy = e.clientY - stick.cy, d = Math.hypot(dx, dy);
+    if (d > 58) { stick.cx += dx / d * (d - 58); stick.cy += dy / d * (d - 58); dx = e.clientX - stick.cx; dy = e.clientY - stick.cy; d = 58;  // the base follows a thumb past the rim
+      const r = left.getBoundingClientRect(); base.style.left = stick.cx - r.left + 'px'; base.style.top = stick.cy - r.top + 'px'; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    const dead = d < 12; touch.mx = dead ? 0 : clamp(dx / 58, -1, 1); touch.mz = dead ? 0 : clamp(dy / 58, -1, 1);
+  };
+  left.addEventListener('pointerdown', e => {
+    if (stick) return;
+    e.preventDefault(); left.setPointerCapture(e.pointerId); take();
+    const r = left.getBoundingClientRect(); stick = { id: e.pointerId, cx: e.clientX, cy: e.clientY };
+    base.classList.add('on'); base.style.left = e.clientX - r.left + 'px'; base.style.top = e.clientY - r.top + 'px'; move(e);
+  });
+  left.addEventListener('pointermove', e => stick && e.pointerId === stick.id && move(e));
+  const unstick = e => { if (!stick || (e && e.pointerId !== stick.id)) return; stick = null; touch.mx = touch.mz = 0; knob.style.transform = ''; base.classList.remove('on'); layoutPad(); };
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) left.addEventListener(ev, unstick);
+  const held = new Map();  // pointerId -> button: each finger keeps the button it landed on
+  right.addEventListener('pointerdown', e => {
+    let best = null, bd = 1e9;
+    for (const b of btns) { const r = b.getBoundingClientRect(), d = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)); if (d < r.width * .65 && d < bd) { best = b; bd = d; } }
+    if (!best) return;
+    e.preventDefault(); right.setPointerCapture(e.pointerId); take();
+    held.set(e.pointerId, best); touch[best.dataset.b] = true; touch.tapped.add(best.dataset.b); best.classList.add('on'); navigator.vibrate && navigator.vibrate(8);
+  });
+  const lift = e => { const b = held.get(e.pointerId); if (!b) return; held.delete(e.pointerId); if (![...held.values()].includes(b)) { touch[b.dataset.b] = false; b.classList.remove('on'); } };
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) right.addEventListener(ev, lift);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  addEventListener('blur', () => { unstick(); held.clear(); btns.forEach(b => b.classList.remove('on')); PADB.forEach(([b]) => touch[b] = false); });  // a call or a notification: let go of everything
+  const quit = el.querySelector('.quit');
+  quit.addEventListener('click', () => {  // two taps to leave, so a stray thumb doesn't end the fight
+    if (quit.dataset.armed) return stop();
+    quit.dataset.armed = '1'; quit.textContent = 'TAP AGAIN TO LEAVE'; setTimeout(() => { delete quit.dataset.armed; quit.textContent = '✕'; }, 2000);
+  });
+}
 function fit() {
   const r = root.getBoundingClientRect(), d = Math.min(devicePixelRatio || 1, 2);
-  W = cv.width = Math.max(1, Math.round(r.width * d)); H = cv.height = Math.max(1, Math.round(r.height * d));
+  W = cv.width = Math.max(1, Math.round(r.width * d)); H = cv.height = Math.max(1, Math.round(r.height * d)); DPR = d;
+  fitPic(); layoutPad();
 }
 async function start(pair, opts = {}) {
+  if (coarse() && document.documentElement.requestFullscreen && !document.fullscreenElement)  // phones: full screen and sideways (Android; iPhones keep the browser bar)
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')).catch(() => {});
   if (window.brawling) stop();  // a new game ends the running one (an online match counts as walking out of it)
   const run = ++startSeq, live = () => run === startSeq;
   root = document.getElementById('brawl'); cv = root.querySelector('canvas'); ctx = cv.getContext('2d');
-  root.hidden = false; window.brawling = true; fit();
+  root.hidden = false; window.brawling = true; fit(); touchPad();
   if (!start.ro) { start.ro = new ResizeObserver(fit); start.ro.observe(root); }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();  // Space must not press the button that started us
   opts0 = opts; mode = opts.mode || (pair && pair.length === 2 ? 'cpu' : 'demo');
@@ -1647,7 +2278,7 @@ async function start(pair, opts = {}) {
     if (net.role === 'guest') net.offs.push(net.link.onData(d => S && net && unpack(d)));
   }
   ctrl[0] = mode === 'demo' ? 'cpu' : 'keys'; ctrl[1] = mode === '2p' ? 'keys' : mode === 'online' ? 'net' : 'cpu';
-  ladder.beaten = []; match.wins = [0, 0]; match.used = []; evs.length = 0; keys.clear(); tapped.clear();
+  ladder.beaten = []; match.wins = [0, 0]; match.used = []; match.sp = [0, 0]; evs.length = 0; keys.clear(); tapped.clear();
   const bar = root.querySelector('.brawl-bar span');
   if (bar) bar.textContent = `${help(mode === '2p')}${mode === 'demo' ? ' · press any of them to take over P1' : ''} · Controllers: press any button to join · ${CREDITS}`;
   S = null;
@@ -1656,7 +2287,7 @@ async function start(pair, opts = {}) {
   await Promise.race([Promise.all(['40px Bungee', '20px "Press Start 2P"'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 1500))]).catch(() => {});
   if (!live()) return;  // stopped (Esc, Leave, another start) while loading
   if (net && net.role === 'guest') {
-    S = freshState({ byId: new Map(), pending: new Set(), evSeen: 0, presses: { punch: 0, kick: 0, grab: 0, jump: 0 }, held: {}, waiting: 'CONNECTING…' });
+    S = freshState({ byId: new Map(), pending: new Set(), evSeen: 0, presses: { punch: 0, kick: 0, grab: 0, jump: 0, special: 0, roll: 0 }, held: {}, waiting: 'CONNECTING…' });
     const d0 = net.link.latest(); if (d0) unpack(d0);
   } else {
     await newMatch(pair, 1);

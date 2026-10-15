@@ -120,6 +120,19 @@ const S = {  // synthesised fallbacks and the sounds no free recording covered
   },
   blip: (b, t, p) => { osc(b, 'triangle', 520 * p, 600 * p, t, .045, .2, .004); osc(b, 'square', 1040 * p, 1150 * p, t, .025, .04, .003); },  // cartoon gibberish, one per syllable
   beep: (b, t, p) => { for (const d of [0, .1]) osc(b, 'sine', 2700 * p, 2700 * p, t + d, .05, .12, .003); },  // camera autofocus, quiet
+  // the specials' curses
+  oink: (b, t, p) => { for (const d of [0, .22]) { osc(b, 'sawtooth', 300 * p, 170 * p, t + d, .16, .35); hiss(b, 'bandpass', 700, 400, t + d, .14, .25, 3); } },
+  cluck: (b, t, p) => { for (const d of [0, .1, .2]) osc(b, 'square', 950 * p, 520 * p, t + d, .06, .22); },
+  fart: (b, t, p) => { osc(b, 'sawtooth', 95 * p, 62 * p, t, .7, .55, .02); hiss(b, 'lowpass', 400, 150, t, .6, .3); },
+  smooch: (b, t, p) => { osc(b, 'sine', 600 * p, 2200 * p, t, .07, .5); osc(b, 'sine', 2400 * p, 900 * p, t + .07, .06, .35); },
+  freeze: (b, t, p) => { hiss(b, 'highpass', 6000, 3000, t, .5, .4, 1); osc(b, 'triangle', 2600 * p, 1800 * p, t, .4, .2); },
+  crack: (b, t, p) => { hiss(b, 'bandpass', 3000 * p, 900, t, .09, 1, 1.5); osc(b, 'square', 420 * p, 90, t, .08, .5); },
+  shrink: (b, t, p) => osc(b, 'sine', 900 * p, 2400 * p, t, .45, .4),
+  inflate: (b, t, p) => osc(b, 'triangle', 160 * p, 520 * p, t, .8, .35),
+  special: (b, t, p) => { for (const [d, f] of [[0, 520], [.08, 660], [.16, 780], [.24, 1040]]) osc(b, 'square', f * p, f * p, t + d, .1, .18); hiss(b, 'highpass', 4000, 9000, t, .5, .15); },
+  matrix: (b, t, p) => { for (let i = 0; i < 10; i++) osc(b, 'sine', (900 + 300 * (i % 3)) * p, 300 * p, t + i * .07, .06, .12); },
+  creak: (b, t, p) => { for (let i = 0; i < 9; i++) osc(b, 'sawtooth', (120 + i * 35) * p, (130 + i * 35) * p, t + i * .1, .09, .14, .01); },  // metal bending, rising
+  escalator: (b, t, p) => { osc(b, 'sawtooth', 70 * p, 74 * p, t, 2.4, .12, .2); hiss(b, 'lowpass', 300, 300, t, 2.4, .08); },
 };
 
 function sound(name, t, o) {  // schedule one sound at time t on the current context

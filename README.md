@@ -39,25 +39,38 @@ After the first pick, choose who plays player 2:
 
 One player (VS CPU, online, demo):
 
-| Move | Punch | Kick | Grab / throw | Jump |
-|---|---|---|---|---|
-| W A S D or arrows | J | K | L | Space |
+| Move | Punch | Kick | Grab / throw | Jump | Special |
+|---|---|---|---|---|---|
+| W A S D or arrows | J | K | L | Space | I |
 
 Two players on one keyboard:
 
-| | Move | Punch | Kick | Grab / throw | Jump |
-|---|---|---|---|---|---|
-| Player 1 | W A S D | X | C | V | Z |
-| Player 2 | I J K L | `,` | `.` | `/` | M |
+| | Move | Punch | Kick | Grab / throw | Jump | Special |
+|---|---|---|---|---|---|---|
+| Player 1 | W A S D | X | C | V | Z | B |
+| Player 2 | I J K L | `,` | `.` | `/` | M | N |
 
-Controllers join by pressing any button (A jump, B grab/throw, X punch, Y kick). Esc leaves the fight.
+Double-tap a direction to roll (toward your rival: through them; away: back; up/down: a sidestep). Controllers join by
+pressing any button (A jump, B grab/throw, X punch, Y kick, LB roll, RB special). On a phone or tablet an on-screen stick
+and buttons appear in the fight. Esc (or the ✕ on a phone) leaves the fight; on the main page Esc opens Settings.
 
-Fighting: punches and kicks chain when they land (jab > cross > uppercut launches into a juggle; jab > cross > kick is a
-roundhouse; kick > kick is a spin kick). Hold a direction to run, then punch or kick for a dropkick. Punch or kick in the
-air for air attacks. Grab right next to your rival to suplex them. Hold away from your rival to block. A red or blue
-glow marks each fighter (it shows through anyone in front), and an arrow over your rival means your next blow will land.
+Fighting (tuned from fighting-game design references: Sirlin, Infil's glossary, Smash/Brawlhalla/Dustloop frame data):
+- Blows chain when they land: jab > cross > uppercut (a launcher: jump after them for an air combo), jab > cross > kick is
+  a roundhouse, kick > kick > kick is low > snap > spin. Right after a hit, ROLL dashes after them.
+- Block by holding away: it stops punches and kicks from the front. A grab beats it, a blow from behind beats it, and
+  blocked blows wear down the guard ring under your feet until it breaks. A grab loses to a blow already swinging and can
+  be broken by pressing GRAB the moment you're caught. Jumping clears low kicks and grabs; an uppercut swats a jumper.
+  Low kicks trip anyone running or finishing a roll. Hitting someone mid-swing is a COUNTER (more damage and stun).
+- Rolls can't be hit in the middle (never the first frames); rolling again and again gets slower.
+- The star bar: every clean blow fills a pip, getting hit costs two, eight pips = SPECIAL, and a full bar carries into the
+  next round. Each guest has their own curse (pig, chicken, balloon, tiny, dizzy, disco, stink cloud, smooch, ice, cake;
+  Moses turns you into a spoon, Naynay summons an escalator). It runs along the floor: jump, roll or sidestep to dodge,
+  block to halve it. In the deciding round Moses finishes with "there is no spoon".
+- Damage numbers pop over each hit and the health bars show the HP left. A soft red or blue glow marks each fighter and
+  shows through anyone in front; an arrow over your rival means your next blow will land.
 
-The **Controls** button on the main page explains how to play and lets you remap every key (saved in your browser).
+The **Settings** cog (bottom right of the main page) has sound, paper edges, the lobby ping, how to play and key
+remapping (saved in your browser).
 
 ## Online play
 

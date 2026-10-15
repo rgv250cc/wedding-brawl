@@ -281,7 +281,8 @@ const CSS = `
   background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 .15em, transparent .15em .3em); }
 .lb * { box-sizing: border-box; }
 .lb:focus { outline: none; }
-.lb-v { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 1.1em; padding: 1.6em 2em; overflow: auto;
+.lb-v { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 1.1em; overflow: auto;
+  padding: max(1.6em, env(safe-area-inset-top, 0px)) max(2em, env(safe-area-inset-right, 0px)) max(1.6em, env(safe-area-inset-bottom, 0px)) max(2em, env(safe-area-inset-left, 0px));
   scrollbar-color: #ffd23f #1d0d00; }
 .lb-head { display: flex; align-items: center; gap: .9em 1.2em; flex-wrap: wrap; }
 .lb-head .sp { flex: 1; }
@@ -364,7 +365,7 @@ const CSS = `
   background: repeating-linear-gradient(75deg, rgba(255,255,255,.1) 0 .4em, transparent .4em 2.2em), linear-gradient(255deg, #1532a8, #19c3ff); }
 .vs-s img { height: 55cqh; max-width: 100%; object-fit: contain;
   filter: drop-shadow(.15em 0 0 #fff) drop-shadow(-.15em 0 0 #fff) drop-shadow(0 .15em 0 #fff) drop-shadow(0 -.15em 0 #fff); }
-.vs-n { font: 400 max(16px, 5cqh)/1 "Bungee", Impact, sans-serif; text-transform: uppercase; max-width: 100%; overflow-wrap: anywhere;
+.vs-n { font: 400 max(16px, 5cqh)/1 "Bungee", Impact, sans-serif; text-transform: uppercase; max-width: 100%; overflow-wrap: normal; word-break: keep-all;
   text-align: center;
   -webkit-text-stroke: max(1px, .06em) #2a1000; paint-order: stroke fill; }
 .vs-v { position: absolute; left: 50%; top: 42%; font: 400 max(34px, 20cqh)/1 "Bungee", Impact, sans-serif; color: #ffd23f;
@@ -585,7 +586,10 @@ function makeRow(it, n) {
 }
 
 function fillVs(l, r) {
-  for (const [side, who] of [[els.vl, l], [els.vr, r]]) { setArt(side._r.img, who.k); setText(side._r.n, who.name); }
+  for (const [side, who] of [[els.vl, l], [els.vr, r]]) {
+    setArt(side._r.img, who.k); setText(side._r.n, who.name);
+    if (window.fitName) window.fitName(side._r.n);  // never break inside a name: the font shrinks instead (index.html)
+  }
   setText(els.note, 'CONNECTING…');
   for (const s of [els.vl, els.vr]) { s.style.animation = 'none'; void s.offsetWidth; s.style.animation = ''; }
 }
@@ -660,8 +664,26 @@ function close() {
   if (core) core.away();
 }
 
-// ---- the lobby from outside: how many are in it (on the Play online button, without entering), and a ping when someone
-// new comes in, even mid-fight, unless it's switched off on the Controls page (localStorage brawl-lobby-ping = '0')
+// ---- the lobby from outside: how many are in it (a "● N online" badge at the top right of the photo, without entering), and a ping when someone
+// new comes in, even mid-fight, unless it's switched off on the Settings page (localStorage brawl-lobby-ping = '0')
+const BADGE_CSS = `
+#online-badge { position: absolute; z-index: 4; top: calc(12px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); display: flex; align-items: center; gap: 7px;
+  padding: 7px 13px 7px 11px; border-radius: 999px; font: 600 13px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; cursor: pointer;
+  background: rgba(24, 18, 12, .62); border: 1px solid rgba(255, 255, 255, .3); backdrop-filter: blur(8px); transition: opacity .25s, visibility .25s; }
+#online-badge[hidden] { display: none; }
+#online-badge:hover, #online-badge:focus-visible { background: rgba(24, 18, 12, .85); }
+#online-badge i { width: 9px; height: 9px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 6px #3ddc84; }`;
+let badge = null;
+function showBadge(n) {  // n people in the lobby besides me; null = the room is not reachable. index.html hides every .hud while a fight is on
+  const stage = typeof document !== 'undefined' && document.querySelector('.stage');
+  if (n == null || !stage) { if (badge) badge.hidden = true; return; }
+  if (!badge) {
+    const style = el('style'); style.textContent = BADGE_CSS; document.head.append(style);
+    badge = btn('', 'hud', () => open()); badge.id = 'online-badge'; badge.title = 'Open the online lobby';
+    const dot = el('i'); dot.setAttribute('aria-hidden', 'true'); badge.append(dot, el('span')); stage.append(badge);
+  }
+  setText(badge.lastChild, n + ' online'); badge.setAttribute('aria-label', 'Online lobby, ' + n + ' online'); badge.hidden = false;
+}
 let watched = false;
 function ping(name) {
   try { if (localStorage.getItem('brawl-lobby-ping') === '0') return; } catch (e) {}
@@ -684,10 +706,15 @@ function watch() {
   acquire().then(r => {
     if (!r || typeof r.onPeers !== 'function') return;
     const known = new Set(), since = Date.now();
+    let up = typeof r.connected === 'function' ? !!safe(() => r.connected()) : true, n = 0;
+    const draw = () => showBadge(up ? n : null);
+    if (typeof r.onConnection === 'function') r.onConnection(c => { up = !!c; draw(); });
+    const others = ps => ps.filter(p => !p.isMe && !p.sameTab).map(readPeer).filter(p => p && p.st !== 'away');
+    try { n = others(r.peers()).length; } catch (e) {}
+    draw();
     r.onPeers(ch => {
-      const here = ch.peers.filter(p => !p.isMe).map(readPeer).filter(p => p && p.st !== 'away');
-      const btn = document.getElementById('online-btn');
-      if (btn) btn.textContent = here.length ? `Play online · ${here.length} here` : 'Play online';
+      const here = others(ch.peers);
+      n = here.length; draw();
       for (const p of here) if (!known.has(p.peer)) { known.add(p.peer); if (Date.now() - since > 4000) ping(p.name); }  // not for those already there
       for (const id of [...known]) if (!here.some(p => p.peer === id)) known.delete(id);
     });

@@ -13,10 +13,10 @@
   :root[data-theme="dark"] { --page: #15120f; --ink: #efe6d8; --chip: rgba(36, 31, 26, .85); }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--page); color: var(--ink);
     font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { position: fixed; inset: 0; display: grid; place-items: center; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(64px + env(safe-area-inset-bottom, 0px)); }
-  .stage { position: relative; width: min(100%, calc((100dvh - 80px) * var(--aspect, 1.5))); aspect-ratio: var(--aspect, 1.5); overflow: hidden;
-    container-type: size; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,.15), 0 24px 60px -20px rgba(0,0,0,.5); }
-  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  main { position: fixed; inset: 0; }
+  .stage { position: absolute; inset: 0; overflow: hidden; container-type: size; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }  /* the whole screen */
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .stage canvas, #fight, #brawl { touch-action: none; }  /* a drag pans the photo or steers the fight: it never scrolls or zooms the page (settings and lobby still scroll) */
 
   /* fighter intro: arcade "character select" panels over the scene */
   #fight { position: absolute; inset: 0; pointer-events: none; color: #fff; font-family: "Press Start 2P", ui-monospace, monospace; }
@@ -41,7 +41,7 @@
   .stats i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: calc(var(--v) * 10%); background: linear-gradient(#fff36b, #ffa400); }
   .plate { position: absolute; left: 4%; right: 16%; bottom: 6cqh; }
   .p2 .plate { left: 16%; right: 4%; text-align: right; }
-  .name { font: 400 max(20px, 9cqh)/.95 "Bungee", Impact, "Arial Black", sans-serif; text-transform: uppercase; overflow-wrap: anywhere; outline: none; cursor: text;
+  .name { font: 400 max(20px, 9cqh)/.95 "Bungee", Impact, "Arial Black", sans-serif; text-transform: uppercase; overflow-wrap: normal; word-break: keep-all; outline: none; cursor: text;
     background: linear-gradient(#fffbd0, #ffd23f 45%, #ff7b00); -webkit-background-clip: text; background-clip: text; color: transparent; caret-color: #fff;
     -webkit-text-stroke: .4cqh #2a1000; paint-order: stroke fill; filter: drop-shadow(0 .6cqh 0 rgba(0,0,0,.55)); }
   .title { font-size: max(8px, 2cqh); line-height: 1.5; margin-top: 1.5cqh; text-shadow: .3cqh .3cqh 0 #000; }
@@ -80,11 +80,20 @@
   @keyframes vs { from { transform: translate(-50%, -50%) rotate(-30deg) scale(4); opacity: 0; } to { opacity: 1; } }
   @keyframes blink { 50% { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { #fight *, #fight::before { animation-duration: 1ms !important; animation-delay: 0s !important; } }
-  nav { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 16px; }
   button { font: inherit; color: var(--ink); background: var(--chip); border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
     border-radius: 999px; padding: 7px 14px; cursor: pointer; backdrop-filter: blur(8px); }
   button[aria-pressed="false"] { opacity: .6; }
-  #hint { opacity: .7; transition: opacity .6s; }
+
+  /* on-photo controls: settings cog (bottom right), the online badge (top right, built by lobby.js), a hint and the iOS tilt button. All hide while a fight is on */
+  .hud { position: absolute; z-index: 4; color: #fff; background: rgba(24, 18, 12, .62); border: 1px solid rgba(255, 255, 255, .3); transition: opacity .25s, visibility .25s; }
+  #fight.on ~ .hud, #brawl:not([hidden]) ~ .hud, #settings:not([hidden]) ~ .hud { opacity: 0; visibility: hidden; pointer-events: none; }
+  #cog { right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 44px; height: 44px; padding: 0; display: grid; place-items: center; }
+  #cog svg { width: 24px; height: 24px; fill: currentColor; }
+  #cog:hover, #cog:focus-visible { background: rgba(24, 18, 12, .85); }
+  #tilt { left: calc(16px + env(safe-area-inset-left, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  #hint { left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: calc(100% - 160px); padding: 6px 14px; border-radius: 999px;
+    font-size: 13px; text-align: center; pointer-events: none; opacity: .9; transition: opacity .8s, visibility .25s; text-wrap: balance; }
+  #hint.gone { opacity: 0; }
 </style>
 </head>
 <body>
@@ -108,17 +117,10 @@
     <canvas aria-label="Ballroom brawl between two guests"></canvas>
     <div class="brawl-bar"><span>P1: WASD move · X punch · C kick · V grab/throw · Z jump — P2: IJKL move · , punch · . kick · / grab/throw · M jump · Controllers: press any button to join · Sounds: Kenney &amp; OpenGameArt (CC0), crowd by Gregor Quendel (CC BY 4.0)</span><button id="brawl-quit">Leave</button></div>
   </div>
+  <div id="hint" class="hud">Move the mouse to look around · click a guest</div>
+  <button id="tilt" class="hud" hidden>Enable tilt</button>
+  <button id="cog" class="hud" aria-label="Settings" title="Settings (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.49.49 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
 </div></main>
-<nav>
-  <button id="replay">Pop up again</button>
-  <button id="paper" aria-pressed="true">Paper edges</button>
-  <button id="sound" aria-pressed="true">Sound</button>
-  <button id="brawl-btn">Ballroom brawl</button>
-  <button id="online-btn">Play online</button>
-  <button id="controls-btn">Controls</button>
-  <button id="tilt" hidden>Enable tilt</button>
-  <span id="hint">Move the mouse to look around · click a guest</span>
-</nav>
 <script src="sfx.js"></script>
 <script src="sounds.js" async></script>
 <script src="voices.js" async></script>
@@ -142,7 +144,6 @@ import * as THREE from 'three';
 const L = window.LAYERS, A = L.W / L.H;
 const D = 4, OVERSCAN = 1.14, GAIN = 1.5, AMP = 0.16;  // camera distance, crop, depth strength, how far the view swings
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-document.documentElement.style.setProperty('--aspect', A);
 
 const canvas = document.querySelector('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -221,43 +222,82 @@ const flaps = L.cards.map((c, k) => {
 
 // hover / tap a guest to lift them out of the crowd (exact pick: test the cut-out's alpha under the pointer)
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(), alphas = imgs.map(pixels);
-let hovered = null;
-function pick(e) {
+let hovered = null, ptrType = 'mouse';
+const cards3d = flaps.map(f => f.children[1]);
+function hitAt(x, y) {  // the guest under a client point, or null
   const r = canvas.getBoundingClientRect();
-  ray.setFromCamera(ptr.set((e.clientX - r.left) / r.width * 2 - 1, 1 - (e.clientY - r.top) / r.height * 2), camera);
-  const hit = ray.intersectObjects(flaps.map(f => f.children[1]))
-    .find(h => sample(alphas[h.object.userData.k], h.uv.x, 1 - h.uv.y, 3) > 0.5);
+  ray.setFromCamera(ptr.set((x - r.left) / r.width * 2 - 1, 1 - (y - r.top) / r.height * 2), camera);
+  const hit = ray.intersectObjects(cards3d).find(h => sample(alphas[h.object.userData.k], h.uv.x, 1 - h.uv.y, 3) > 0.5);
+  return hit ? flaps[hit.object.userData.k] : null;
+}
+function pick(x, y, slop = 0, quiet = false) {  // a fingertip is not a pixel: look at rings around the touch until some guest is under it
+  let h = hitAt(x, y);
+  for (let r = slop / 2; !h && r > 0 && r <= slop; r += slop / 2) for (let i = 0; !h && i < 8; i++) h = hitAt(x + r * Math.cos(i * Math.PI / 4), y + r * Math.sin(i * Math.PI / 4));
   const was = hovered;
-  hovered = hit ? flaps[hit.object.userData.k] : null;
-  if (hovered && hovered !== was && window.SFX) SFX.play('tick', { pitch: 1.5, vol: .4 });
+  hovered = h;
+  if (hovered && hovered !== was && !quiet && window.SFX) SFX.play('tick', { pitch: 1.5, vol: .4 });
   canvas.style.cursor = hovered ? 'pointer' : '';
 }
-canvas.addEventListener('pointermove', pick);
-canvas.addEventListener('pointerdown', pick);
-canvas.addEventListener('pointerleave', () => { hovered = null; });
+canvas.addEventListener('pointermove', e => { ptrType = e.pointerType; if (e.pointerType !== 'touch') pick(e.clientX, e.clientY); });  // dragging a finger pans, it does not hover
+canvas.addEventListener('pointerdown', e => { ptrType = e.pointerType; pick(e.clientX, e.clientY, e.pointerType === 'touch' ? 28 : 0); });
+canvas.addEventListener('pointerleave', () => { hovered = null; });  // a touch fires this before its click: the click picks again
+canvas.addEventListener('contextmenu', e => e.preventDefault());  // no menu on a long press
 const hedge = relief(fg, pixels(fgDepth), true);
 hedge.renderOrder = 1e4;
 scene.add(hedge);
 
-let pan = 0, ptrX = .5;  // pan: how far the view window has slid along the photo (world units, negative = toward its left side)
-function view(dx, dy) {  // off-axis frustum: the picture plane stays pinned to the frame, like looking through a window
+let pan = 0, ptrX = .5;  // pan: how far the view window has slid along the photo for picking a rival (world units, negative = toward its left side)
+// Cover-fit: the photo fills the canvas at any aspect and the overflow is cropped. hw/hh = half the window on the picture plane; slx/sly = how far
+// it can slide over the photo (the crop), which the pointer, a tilt or a finger drag steers through `cur`.
+let cw = 1, ch = 1, hw = A / OVERSCAN, hh = 1 / OVERSCAN, slx = 0, sly = 0, swayK = 1;
+function fit() {
+  cw = canvas.clientWidth || 1; ch = canvas.clientHeight || 1;
+  const c = cw / ch;
+  hw = Math.min(A, c) / OVERSCAN; hh = hw / c;
+  slx = Math.max(0, A - hw) * .9; sly = Math.max(0, 1 - hh) * .9;
+}
+function view(dx, dy, sx, sy) {  // off-axis frustum: the picture plane stays pinned to the frame, like looking through a window (centred on sx, sy)
   camera.position.set(dx, dy, D);
-  const k = camera.near / D, hw = A / OVERSCAN, hh = 1 / OVERSCAN;
-  camera.projectionMatrix.makePerspective((pan - hw - dx) * k, (pan + hw - dx) * k, (hh - dy) * k, (-hh - dy) * k, camera.near, camera.far);
+  const k = camera.near / D;
+  camera.projectionMatrix.makePerspective((sx - hw - dx) * k, (sx + hw - dx) * k, (sy + hh - dy) * k, (sy - hh - dy) * k, camera.near, camera.far);
   camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 }
 
 const target = new THREE.Vector2(), cur = new THREE.Vector2(), clamp = x => Math.max(-1, Math.min(1, x));
-let last = -1e9, t0 = performance.now();
+let last = -1e9, idle = 2500, t0 = performance.now();  // idle: how long after the last steering the view drifts on its own again
 const hint = document.getElementById('hint'), touch = matchMedia('(pointer: coarse)').matches;
+const touchOnly = touch && !matchMedia('(any-pointer: fine)').matches;  // a phone: one screen, no keyboard
 const framed = (() => { try { return window.self !== window.top; } catch { return true; } })();  // embedded viewers block motion sensors
 if (touch) hint.textContent = (framed ? 'Drag' : 'Tilt or drag') + ' to look around · tap a guest';
-function aim(x, y) { target.set(clamp(x), clamp(y)); last = performance.now(); hint.style.opacity = 0; }
+setTimeout(() => hint.classList.add('gone'), 9000);  // the hint is for the first few seconds only
+function aim(x, y) { target.set(clamp(x), clamp(y)); last = performance.now(); }
 addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch') return;  // a finger drags the photo (below); steering by pointer position and edge-scroll are the mouse's
   const r = canvas.getBoundingClientRect();
   ptrX = (e.clientX - r.left) / r.width;
   aim((e.clientX - r.left) / r.width * 2 - 1, 1 - (e.clientY - r.top) / r.height * 2);
 });
+// touch: the photo follows the finger. A tap (under 10px of travel) is left alone and arrives as a click; a drag must not click on release.
+let drag = null, noClick = false;
+const choosing = () => picked.length === 1 && fight.classList.contains('on'), farPan = () => -A + .08 * hw;  // picking a rival: P1's panel covers the left half
+const grabbable = t => t === canvas || (t.closest && t.closest('.fighter') && !t.closest('.name'));
+addEventListener('pointerdown', e => {
+  noClick = false; ptrType = e.pointerType;
+  if (e.pointerType !== 'touch') return;
+  ptrX = .5;
+  if (!drag && grabbable(e.target)) drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+});
+addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id || (!noClick && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 10)) return;
+  noClick = true; hovered = null;
+  const wpp = 2 * hw / cw, dx = e.clientX - drag.x, dy = e.clientY - drag.y;  // world units per pixel on the picture plane
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (choosing()) pan = Math.max(farPan(), Math.min(0, pan - dx * wpp)); else target.x = cur.x = clamp(target.x - dx * wpp / Math.max(slx, .01));
+  target.y = cur.y = clamp(target.y + dy * wpp / Math.max(sly, .01));
+  last = performance.now(); idle = 10000;
+});
+const drop = e => { if (drag && e.pointerId === drag.id) drag = null; };
+addEventListener('pointerup', drop); addEventListener('pointercancel', drop);
 let base = null;
 addEventListener('deviceorientation', e => {
   if (e.beta == null) return;
@@ -273,14 +313,12 @@ if (touch && !framed && typeof DeviceOrientationEvent !== 'undefined' && typeof 
   tilt.hidden = false;  // iOS asks first
   tilt.onclick = async () => { if (await DeviceOrientationEvent.requestPermission() === 'granted') tilt.hidden = true; };
 }
-const sound = document.getElementById('sound');
-sound.onclick = () => { const on = sound.getAttribute('aria-pressed') !== 'true'; sound.setAttribute('aria-pressed', on); window.SFX && SFX.mute(!on); };
-document.getElementById('replay').onclick = () => { t0 = performance.now(); };
-const paper = document.getElementById('paper');
-paper.onclick = () => {
-  const on = paper.getAttribute('aria-pressed') !== 'true';
-  paper.setAttribute('aria-pressed', on);
-  for (const f of flaps) { f.children[0].visible = on; f.children[1].material.uniforms.paper.value = +on; }
+// what the settings page drives: sound, the white paper edges and the pop-up replay
+let soundOn = true, paperOn = true;
+window.Game = {
+  get sound() { return soundOn; }, set sound(on) { soundOn = !!on; window.SFX && SFX.mute(!soundOn); },
+  get paper() { return paperOn; }, set paper(on) { paperOn = !!on; for (const f of flaps) { f.children[0].visible = paperOn; f.children[1].material.uniforms.paper.value = +paperOn; } },
+  replay() { t0 = performance.now(); },
 };
 
 // --- fighter intro: click a guest and they dash in arcade-style; click a second guest for VS
@@ -304,6 +342,15 @@ const BODY_TITLES = { cyborg: ['Upgrade Complete', 'Half Guest, Half Machine', '
 const KEY = `popup-names:${L.W}x${L.H}:${L.cards.length}`;  // per photo
 let names = {};
 try { names = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
+function fitName(n) {  // never break inside a word: shrink the font until every word sits on one line and fits the card
+  n.style.fontSize = '';
+  const tw = document.createTreeWalker(n, NodeFilter.SHOW_TEXT), rg = document.createRange(), words = [];
+  for (let t; (t = tw.nextNode());) for (const m of t.data.matchAll(/\S+/g)) words.push([t, m.index, m.index + m[0].length]);
+  const split = () => n.scrollWidth > n.clientWidth + 1 || words.some(([t, a, b]) => (rg.setStart(t, a), rg.setEnd(t, b), rg.getClientRects().length > 1));  // a hyphen can break too
+  for (let px = parseFloat(getComputedStyle(n).fontSize), i = 0; i < 60 && px > 8 && split(); i++) n.style.fontSize = (px *= .95) + 'px';
+}
+window.fitName = fitName;  // lobby.js fits its VS screen with it
+const fitNames = () => [p1, p2].forEach(el => fitName(el.querySelector('.name')));
 function show(el, k) {
   const pool = (L.cards[k].cy && BODY_TITLES[L.bodies]) || TITLES;
   const nick = window.NICKNAMES && window.NICKNAMES[k];  // nicknames.js: a sweet name and title for everyone we don't know
@@ -311,6 +358,7 @@ function show(el, k) {
   // big portrait from fighters.js (data: images load in every viewer); the small cut-out until that file arrives
   el.querySelector('img').src = (window.FIGHTERS && window.FIGHTERS[k]) || L.cards[k].img;
   el.querySelector('.name').textContent = names[k] || name;
+  fitName(el.querySelector('.name'));
   el.querySelector('.title').textContent = title;
   el.querySelector('.stats').innerHTML = ['DANCE', 'CHARM', 'STAMINA']
     .map((s, i) => `<span>${s}</span><i style="--v:${NAMED[k] ? 10 : 4 + Math.floor(hash(k, i + 1) * 7)}"></i>`).join('');
@@ -323,8 +371,11 @@ function closeFight() {
   for (const el of [p1, p2]) if (el.classList.contains('in')) { el.classList.replace('in', 'out'); setTimeout(() => el.classList.remove('out'), 300); }
   fight.classList.remove('on', 'versus'); picked = []; delete fight.dataset.mode;
 }
-canvas.addEventListener('click', () => {
+canvas.addEventListener('click', e => {
+  if (noClick) return;  // that was a drag
+  if (ptrType === 'touch') pick(e.clientX, e.clientY, 28, true);  // a touch has left the canvas by now (pointerleave comes first): look again
   const k = hovered ? hovered.userData.k : -1;
+  if (ptrType === 'touch') hovered = null;
   if (k >= 0 && k === picked[0] && picked.length === 1) { window.SFX && SFX.play('clonk', { vol: .5 }); return; }  // already player 1
   if (k < 0 || picked.length === 2) return closeFight();
   if (picked.length === 1 && !fight.dataset.mode) fight.dataset.mode = 'cpu';  // picked a rival without choosing: they're the CPU
@@ -334,9 +385,14 @@ canvas.addEventListener('click', () => {
   fight.classList.toggle('versus', picked.length === 2);
   if (picked.length === 2 && window.SFX) { setTimeout(() => SFX.play('boom'), 350); setTimeout(() => SFX.play('prepare'), 1300); }
 });
-for (const el of [p1, p2]) el.addEventListener('click', e => { if (!e.target.classList.contains('name')) closeFight(); });
+for (const el of [p1, p2]) el.addEventListener('click', e => { if (!noClick && !e.target.classList.contains('name')) closeFight(); });
+let escFight = false;  // brawl.js ends a fight on Esc (maybe before this runs): that Esc must not also open the settings
+addEventListener('keydown', e => { if (e.key === 'Escape') escFight = !!window.brawling; }, true);
 addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeFight();
+  if (e.key === 'Escape' && !e.repeat && !escFight) {  // the settings page closes itself on Esc and swallows it first
+    if (fight.classList.contains('on')) closeFight();
+    else if (!(window.Lobby && window.Lobby.state.open)) window.Settings && window.Settings.open();
+  }
   if (e.key === 'Enter' && e.target.classList.contains('name')) { e.preventDefault(); e.target.blur(); }
 });
 window.guestName = k => names[k] || (NAMED[k] || [])[0] || (window.NICKNAMES && window.NICKNAMES[k] && window.NICKNAMES[k].name) || `Guest ${k + 1}`;  // the brawl uses the same names
@@ -354,32 +410,35 @@ document.getElementById('fightbtn').onclick = e => {
   const pair = picked.slice(), mode = fight.dataset.mode || 'cpu'; closeFight();
   window.Brawl && window.Brawl.start(pair, { mode });
 };
-document.getElementById('brawl-btn').onclick = () => window.Brawl && window.Brawl.start();
-document.getElementById('online-btn').onclick = () => window.Lobby && window.Lobby.open();
-document.getElementById('controls-btn').onclick = () => window.Controls && window.Controls.open();
+document.getElementById('cog').onclick = () => window.Settings && window.Settings.open();
+if (touchOnly) document.querySelector('#mode [data-mode="2p"]').hidden = true;  // two players share one keyboard
 document.getElementById('brawl-quit').onclick = () => window.Brawl && window.Brawl.stop();
 fight.addEventListener('input', e => {  // typed names are remembered in this browser
+  fitName(e.target);
   names[e.target.closest('.fighter').dataset.k] = e.target.textContent.trim();
   try { localStorage.setItem(KEY, JSON.stringify(names)); } catch {}
 });
 
-new ResizeObserver(() => renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)).observe(canvas);
+new ResizeObserver(() => { renderer.setSize(canvas.clientWidth, canvas.clientHeight, false); fit(); fitNames(); }).observe(canvas);
+fit();
+if (document.fonts) { document.fonts.ready.then(fitNames); document.fonts.addEventListener('loadingdone', fitNames); }  // Bungee arrives late
 let chose = false;
 const backOut = x => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
 let lastNow = 0;
 renderer.setAnimationLoop(now => {
   const dt = Math.min(.05, (now - lastNow) / 1000 || 0); lastNow = now;
   // picking player 2 while player 1's panel covers the left half: point near either edge of the open part to slide the photo
-  const choosing = picked.length === 1 && fight.classList.contains('on'), far = -A + .08 * A / OVERSCAN;
-  if (choosing && ptrX > .5) pan = Math.max(far, Math.min(0, pan + (ptrX < .62 ? -(.62 - ptrX) / .12 : ptrX > .9 ? (ptrX - .9) / .1 : 0) * 1.8 * dt));
-  else if (!choosing) pan *= Math.pow(.02, dt);
-  flaps.forEach((f, k) => { const u = f.children[0].material.uniforms, mine = choosing && k === picked[0];
+  const pick1 = choosing();
+  if (pick1 && ptrX > .5) pan = Math.max(farPan(), Math.min(0, pan + (ptrX < .62 ? -(.62 - ptrX) / .12 : ptrX > .9 ? (ptrX - .9) / .1 : 0) * 1.8 * dt));  // mouse edge-scroll (a finger drags instead)
+  else if (!pick1) pan *= Math.pow(.02, dt);
+  swayK += ((pick1 ? 0 : 1) - swayK) * Math.min(1, dt * 6);  // while picking a rival the pan above owns the sideways slide
+  flaps.forEach((f, k) => { const u = f.children[0].material.uniforms, mine = pick1 && k === picked[0];
     u.tint.value.setRGB(mine ? 1 : 0, mine ? .3 : 0, mine ? .23 : 0); u.opacity.value = mine ? .95 : .35; });
   if (window.brawling) return;  // the ballroom has the stage
-  if (!reduce && now - last > 2500) { const s = now / 1000; target.set(Math.sin(s * 0.55) * 0.75, Math.sin(s * 0.37) * 0.35); }
+  if (!reduce && now - last > idle) { const s = now / 1000; target.set(Math.sin(s * 0.55) * 0.75, Math.sin(s * 0.37) * 0.35); }
   cur.lerp(target, 0.06);
   const el = (now - t0) / 1000, intro = reduce ? 0 : Math.max(0, 1 - el / 2.2);
-  view(cur.x * AMP, cur.y * AMP * 0.7 + 0.5 * intro * intro);
+  view(cur.x * AMP, cur.y * AMP * 0.7 + 0.5 * intro * intro, pan + cur.x * slx * swayK, clamp(cur.y + .3) * sly);  // rests a little high: heads matter more than feet when the screen is wider than the photo
   for (const f of flaps) {
     const u = f.userData, x = reduce ? 1 : Math.min(Math.max((el - u.delay) / 0.7, 0), 1);
     if (x > 0 && !f.visible && window.SFX) SFX.play('paper', { pan: u.x0 / A });

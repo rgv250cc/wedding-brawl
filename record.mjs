@@ -62,13 +62,13 @@ async function glide(to, seconds) {  // move the pointer smoothly, one step per 
   }
 }
 
-// --- the pop-up intro plays once, a look at the Controls page, then character select
+// --- the pop-up intro plays once, a look at the Settings page (the cog), then character select
 await page.mouse.move(...mouse);
 await step(Math.round(3.2 * FPS));
-const cb = await page.evaluate(() => document.querySelector('#controls-btn').getBoundingClientRect().toJSON());
-await glide([cb.left + cb.width / 2, cb.top + cb.height / 2], .6); await page.mouse.click(...mouse); log('controls page');
+const cb = await page.evaluate(() => document.querySelector('#cog').getBoundingClientRect().toJSON());
+await glide([cb.left + cb.width / 2, cb.top + cb.height / 2], .6); await page.mouse.click(...mouse); log('settings page');
 await step(Math.round(3 * FPS));
-const done = await page.evaluate(() => document.querySelector('#controls .go').getBoundingClientRect().toJSON());
+const done = await page.evaluate(() => document.querySelector('#settings .go').getBoundingClientRect().toJSON());
 await glide([done.left + done.width / 2, done.top + done.height / 2], .5); await page.mouse.click(...mouse);
 await step(Math.round(.6 * FPS));
 await glide(at(.617, .652), .9); await page.mouse.click(...mouse); log('picked', await page.textContent('.p1 .name'));   // the groom

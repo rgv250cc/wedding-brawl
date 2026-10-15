@@ -114,6 +114,7 @@
   <button id="sound" aria-pressed="true">Sound</button>
   <button id="brawl-btn">Ballroom brawl</button>
   <button id="online-btn">Play online</button>
+  <button id="controls-btn">Controls</button>
   <button id="tilt" hidden>Enable tilt</button>
   <span id="hint">Move the mouse to look around · click a guest</span>
 </nav>
@@ -132,6 +133,7 @@
 <script src="brawl.js" async></script>
 <script src="roomshim.js" async></script>
 <script src="lobby.js" async></script>
+<script src="settings.js" async></script>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }</script>
 <script type="module">
 import * as THREE from 'three';
@@ -353,6 +355,7 @@ document.getElementById('fightbtn').onclick = e => {
 };
 document.getElementById('brawl-btn').onclick = () => window.Brawl && window.Brawl.start();
 document.getElementById('online-btn').onclick = () => window.Lobby && window.Lobby.open();
+document.getElementById('controls-btn').onclick = () => window.Controls && window.Controls.open();
 document.getElementById('brawl-quit').onclick = () => window.Brawl && window.Brawl.stop();
 fight.addEventListener('input', e => {  // typed names are remembered in this browser
   names[e.target.closest('.fighter').dataset.k] = e.target.textContent.trim();

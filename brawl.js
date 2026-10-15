@@ -80,16 +80,25 @@ const LOO = SPOTS.find(s => s.key === 'loo'), WATCH = { key: 'watch', act: 'watc
 
 // ---- keys: physical KeyboardEvent.code, so any keyboard language works. One player: WASD + J/K/L + Space.
 // Two players on one keyboard: P1 on the left (WASD, X C V, Z), P2 on the right (IJKL, , . /, M).
-const LAYOUT = {
+const DEFAULT_KEYS = {
   solo: [{ up: ['KeyW', 'ArrowUp'], left: ['KeyA', 'ArrowLeft'], down: ['KeyS', 'ArrowDown'], right: ['KeyD', 'ArrowRight'],
            punch: ['KeyJ'], kick: ['KeyK'], grab: ['KeyL'], jump: ['Space'] }],
   duo: [{ up: ['KeyW'], left: ['KeyA'], down: ['KeyS'], right: ['KeyD'], punch: ['KeyX'], kick: ['KeyC'], grab: ['KeyV'], jump: ['KeyZ'] },
         { up: ['KeyI'], left: ['KeyJ'], down: ['KeyK'], right: ['KeyL'], punch: ['Comma'], kick: ['Period'], grab: ['Slash'], jump: ['KeyM'] }],
 };
-const HELP = {
-  solo: 'WASD / arrows move · J punch · K kick · L grab/throw · Space jump',
-  duo: 'P1: WASD move · X punch · C kick · V grab/throw · Z jump — P2: IJKL move · , punch · . kick · / grab/throw · M jump',
-};
+const ACTIONS = ['up', 'left', 'down', 'right', 'punch', 'kick', 'grab', 'jump'];
+const copyKeys = k => JSON.parse(JSON.stringify(k));
+let LAYOUT = copyKeys(DEFAULT_KEYS);  // the Controls page (settings.js) remaps these; saved per browser
+try {
+  const saved = JSON.parse(localStorage.getItem('brawl-keys'));
+  const ok = l => Array.isArray(l) && l.every(m => ACTIONS.every(a => Array.isArray(m[a]) && m[a].length && m[a].every(c => typeof c === 'string' && c.length < 24)));
+  if (saved && ok(saved.solo) && ok(saved.duo) && saved.solo.length === 1 && saved.duo.length === 2) LAYOUT = saved;
+} catch {}
+const keyName = c => ({ Space: 'Space', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Backslash: '\\',
+  Minus: '-', Equal: '=', Backquote: '`', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'Enter', Tab: 'Tab' })[c]
+  || c.replace(/^Key|^Digit|^Numpad/, '').replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, (m, k, s) => `${s === 'Left' ? 'L' : 'R'}-${k === 'Control' ? 'Ctrl' : k}`);
+const helpFor = m => `${['up', 'left', 'down', 'right'].map(a => keyName(m[a][0])).join('')} move · ${keyName(m.punch[0])} punch · ${keyName(m.kick[0])} kick · ${keyName(m.grab[0])} grab/throw · ${keyName(m.jump[0])} jump`;
+const help = two => two ? `P1: ${helpFor(LAYOUT.duo[0])} — P2: ${helpFor(LAYOUT.duo[1])}` : helpFor(LAYOUT.solo[0]);
 const CREDITS = 'Sounds: Kenney & OpenGameArt (CC0), crowd by Gregor Quendel (CC BY 4.0)';
 
 // ---- poses for the puppets. A limb is [direction, weight] in the figure's own frame: 0 = forward, D = down, -D = up;
@@ -1507,8 +1516,8 @@ async function start(pair, opts = {}) {
   }
   ctrl[0] = mode === 'demo' ? 'cpu' : 'keys'; ctrl[1] = mode === '2p' ? 'keys' : mode === 'online' ? 'net' : 'cpu';
   ladder.beaten = []; match.wins = [0, 0]; evs.length = 0; keys.clear(); tapped.clear();
-  const help = root.querySelector('.brawl-bar span');
-  if (help) help.textContent = `${mode === '2p' ? HELP.duo : HELP.solo}${mode === 'demo' ? ' · press any of them to take over P1' : ''} · Controllers: press any button to join · ${CREDITS}`;
+  const bar = root.querySelector('.brawl-bar span');
+  if (bar) bar.textContent = `${help(mode === '2p')}${mode === 'demo' ? ' · press any of them to take over P1' : ''} · Controllers: press any button to join · ${CREDITS}`;
   S = null;
   const ph = new Image(); if (window.PHOTOG) ph.src = window.PHOTOG;
   photogImg = window.PHOTOG ? await ph.decode().then(() => ph, () => null) : null;
@@ -1544,5 +1553,7 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
-window.Brawl = { start, stop, get state() { return S; }, POSE, drawItem };  // state: for poking at a running match from the console
+window.Brawl = { start, stop, get state() { return S; }, POSE, drawItem,
+  keys: { get: () => copyKeys(LAYOUT), defaults: () => copyKeys(DEFAULT_KEYS), name: keyName, actions: ACTIONS,
+          set(l) { LAYOUT = copyKeys(l); try { localStorage.setItem('brawl-keys', JSON.stringify(LAYOUT)); } catch {} } } };  // state: for poking at a running match from the console
 })();

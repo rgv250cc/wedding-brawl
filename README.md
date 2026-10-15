@@ -52,6 +52,8 @@ Two players on one keyboard:
 
 Controllers join by pressing any button (A jump, B grab/throw, X punch, Y kick). Esc leaves the fight.
 
+The **Controls** button on the main page explains how to play and lets you remap every key (saved in your browser).
+
 ## Online play
 
 - **From the shared claude.ai page**: the lobby uses the page's live room, so anyone you share the page with can join.

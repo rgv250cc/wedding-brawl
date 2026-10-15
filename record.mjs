@@ -29,7 +29,7 @@ await page.addInitScript(() => {  // virtual clock: time moves only when the rec
 });
 const t0 = Date.now(), log = (...a) => console.log(((Date.now() - t0) / 1000).toFixed(0).padStart(4) + 's', ...a);
 await page.goto(URL);
-for (let i = 0; !(await page.evaluate(() => !!(window.LAYERS && window.FIGHTERS && window.Brawl && window.SFX && window.SOUNDS && window.BALLROOM && window.Puppet && window.PHOTOG))); i++) {
+for (let i = 0; !(await page.evaluate(() => !!(window.LAYERS && window.FIGHTERS && window.Brawl && window.SFX && window.SOUNDS && window.BALLROOM && window.Puppet && window.PHOTOG && window.Comic && window.NICKNAMES && window.VOICES && window.Controls))); i++) {
   if (i > 300) throw new Error('page never finished loading');
   await new Promise(r => setTimeout(r, 100));
 }
@@ -62,9 +62,16 @@ async function glide(to, seconds) {  // move the pointer smoothly, one step per 
   }
 }
 
-// --- the pop-up intro plays once, then character select
+// --- the pop-up intro plays once, a look at the Controls page, then character select
 await page.mouse.move(...mouse);
 await step(Math.round(3.2 * FPS));
+const cb = await page.evaluate(() => document.querySelector('#controls-btn').getBoundingClientRect().toJSON());
+await glide([cb.left + cb.width / 2, cb.top + cb.height / 2], .6); await page.mouse.click(...mouse); log('controls page');
+await step(Math.round(3 * FPS));
+const done = await page.evaluate(() => document.querySelector('#controls .bar .go').getBoundingClientRect().toJSON());
+if (done.top < VH) { await glide([done.left + done.width / 2, done.top + done.height / 2], .5); await page.mouse.click(...mouse); }
+else await page.keyboard.press('Escape');
+await step(Math.round(.6 * FPS));
 await glide(at(.617, .652), .9); await page.mouse.click(...mouse); log('picked', await page.textContent('.p1 .name'));   // the groom
 await step(Math.round(1.6 * FPS));
 const vs = await page.evaluate(() => document.querySelector('#mode [data-mode="cpu"]').getBoundingClientRect().toJSON());
@@ -81,7 +88,7 @@ await page.mouse.move(VW - 4, VH - 4);  // pointer out of the way
 const held = new Set(), DOWN = ['down', 'cry', 'ko', 'slip', 'getup', 'faint', 'flip', 'beam', 'fall'];
 const key = async (k, on) => { if (on === held.has(k)) return; await (on ? page.keyboard.down(k) : page.keyboard.up(k)); on ? held.add(k) : held.delete(k); };
 const tap = async k => { await page.keyboard.down(k); pendingUp.push(k); };  // released on the next frame
-let koAt = 0, chaos = 3, fightStart = 0;
+let koAt = 0, chaos = 3, fightStart = 0, finAt = 0, finished = false;
 for (;;) {
   const s = await page.evaluate(() => {
     const S = window.Brawl.state; if (!S) return null;
@@ -92,8 +99,13 @@ for (;;) {
   });
   if (!s) { await step(); continue; }
   if (!fightStart && s.phase === 'fight') fightStart = vt();
-  if (s.round > 1 || (koAt && vt() - koAt > 6) || (fightStart && vt() - fightStart > 75)) break;
+  if (s.round > 1 || (koAt && vt() - koAt > 6.5) || (fightStart && vt() - fightStart > 100)) break;
   if (s.phase === 'ko' && !koAt) { koAt = vt(); log('round over at', vt().toFixed(1) + 's of video:', s.a.name, Math.round(s.a.hp), 'vs', s.b.name, Math.round(s.b.hp)); }
+  if (s.phase === 'finish') {  // FINISH THEM! — let the moment land, then do it
+    for (const k of [...held]) await key(k, false);
+    if (!finAt) { finAt = vt(); log('FINISH THEM'); } else if (vt() - finAt > 1.2 && !finished) { finished = true; await tap('j'); log('finisher'); }
+    await step(); continue;
+  }
   if (s.phase !== 'fight') { for (const k of [...held]) await key(k, false); await step(); continue; }
   const me = s.a, foe = s.b, d = o => Math.hypot(o.x - me.x, (o.z - me.z) * 1.5);
   const loot = !me.item && s.items.sort((p, q) => (q.type === 'raygun') - (p.type === 'raygun') || d(p) - d(q))[0];  // ray guns first

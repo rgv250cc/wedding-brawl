@@ -13,7 +13,7 @@ import { WebSocketServer } from 'ws';
 
 // the only files served (what the game page loads); everything else is 404. To publish another file, add its path here.
 const PAGE = new Set(['/', '/index.html', '/sfx.js', '/sounds.js', '/layers.js', '/fighters.js', '/ballroom.js', '/stages.js', '/nicknames.js', '/comic.js', '/voices.js', '/rigs.js', '/puppet.js', '/photog.js',
-  '/brawl.js', '/roomshim.js', '/lobby.js']);
+  '/brawl.js', '/roomshim.js', '/lobby.js', '/settings.js']);
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +process.env.PORT || 8780, HOST = process.env.HOST || '127.0.0.1', CODE = process.env.BRAWL_CODE || '', PING = +process.env.PING_MS || 15000;

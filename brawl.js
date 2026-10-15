@@ -1555,10 +1555,22 @@ function animate(e, dt) {
 }
 
 // ---- drawing
+const ITEM_PHOTO = {  // the items as cut-out photos (props.js): which photo, which anchor goes in the hand, how big (item units, ~80 = an item's height), sized by height or width
+  fork: ['fork', 'hold', 92, 'h'], bottle: ['winebottle', 'mid', 88, 'h'], champagne: ['bottle', 'hold', 92, 'h'], gift: ['gift', 'base', 46, 'h'],
+  shoe: ['shoe', 'sole', 74, 'w'], plate: ['plate', 'center', 72, 'w'], raygun: ['raygun', 'grip', 64, 'w'] };
+function itemPhoto(type, g) {  // draws it with its grip at the origin (the context is already in item units); false: no photo, draw the old shape
+  const m = ITEM_PHOTO[type], P = m && prop(m[0]);
+  if (!P) return false;
+  const w0 = P.im.width, h0 = P.im.height, k = m[3] === 'h' ? m[2] / h0 : m[2] / w0;
+  const a = m[1] === 'mid' ? [(P.hold || [.5, .3])[0], ((P.hold || [.5, .3])[1] + (P.bottom || [.5, .95])[1]) / 2] : P[m[1]] || [.5, .5];
+  g.drawImage(P.im, -a[0] * w0 * k, -a[1] * h0 * k, w0 * k, h0 * k);
+  return true;
+}
 function drawItem(type, h, ang, ammo, g = ctx) {
   const s = h / 330, parts = type === 'champagne' && ammo ? SHAPES.champagne.concat([['r', -4, -72, 8, 13, '#c8a165']]) : SHAPES[type];
   if (!parts) return;
   g.save(); g.rotate(ang); g.scale(s, s); g.lineJoin = 'round';
+  if (itemPhoto(type, g)) return g.restore();
   for (const pass of [0, 1]) for (const [k, ...a] of parts) {  // pass 0: white paper rim, pass 1: colour
     const fill = a[a.length - 1];
     let path = null;
@@ -1932,7 +1944,14 @@ function drawBeam(u) {
   for (let i = 0; i < 6; i++) { const t = (S.t * .8 + i / 6) % 1; star(X + Math.sin(i * 7 + S.t * 3) * half * .6 * t, fy - (fy - Y) * t, H * .006, 'rgba(230, 255, 230, .9)'); }
 }
 function drawUfo(u) {
-  const X = u.x * W, Y = u.y * H + Math.sin(S.t * 3) * H * .006, s = H / 700;
+  const X = u.x * W, Y = u.y * H + Math.sin(S.t * 3) * H * .006, s = H / 700, P = prop('ufo');
+  if (P) {  // the photo saucer, wobbling, with its lights still blinking underneath
+    const w = 190 * s, h = w * P.im.height / P.im.width, [cx, cy] = P.center || [.5, .5];
+    ctx.save(); ctx.translate(X, Y); ctx.rotate(Math.sin(S.t * 2) * .06); ctx.drawImage(P.im, -cx * w, -cy * h, w, h);
+    for (let i = 0; i < 5; i++) { ctx.fillStyle = ['#ff5a5a', '#ffe14d', '#5ad1ff'][(i + Math.floor(S.t * 6)) % 3]; ctx.beginPath(); ctx.arc((-40 + i * 20) * s, h * (1 - cy) * .7, 4 * s, 0, TAU); ctx.fill(); }
+    ctx.restore();
+    return;
+  }
   ctx.save(); ctx.translate(X, Y); ctx.scale(s, s); ctx.rotate(Math.sin(S.t * 2) * .06);
   ctx.fillStyle = 'rgba(160, 230, 255, .55)'; ctx.beginPath(); ctx.ellipse(0, -14, 36, 32, 0, Math.PI, 0); ctx.fill();  // dome
   ctx.fillStyle = '#7ddb4f'; ctx.beginPath(); ctx.ellipse(0, -24, 13, 15, 0, 0, TAU); ctx.fill();  // the pilot
@@ -1944,7 +1963,12 @@ function drawUfo(u) {
   ctx.restore();
 }
 function drawDove(d) {
-  const X = d.x * W, Y = d.y * H + Math.sin(S.t * 3 + d.ph) * H * .01, s = H * .018, f = Math.sin(S.t * 14 + d.ph);
+  const X = d.x * W, Y = d.y * H + Math.sin(S.t * 3 + d.ph) * H * .01, s = H * .018, f = Math.sin(S.t * 14 + d.ph), P = prop('dove');
+  if (P) {  // the photo dove, flapping by squashing a little
+    const w = s * 4.2, h = w * P.im.height / P.im.width;
+    ctx.save(); ctx.translate(X, Y); ctx.scale(d.dir * (P.facing === 'left' ? -1 : 1), 1 - .25 * Math.abs(f)); ctx.drawImage(P.im, -w / 2, -h / 2, w, h); ctx.restore();
+    return;
+  }
   ctx.strokeStyle = '#fff'; ctx.lineWidth = s * .4; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(X - s * 1.4, Y - f * s); ctx.quadraticCurveTo(X - s * .5, Y - s * .2 - f * s * .5, X, Y);
   ctx.quadraticCurveTo(X + s * .5, Y - s * .2 - f * s * .5, X + s * 1.4, Y - f * s); ctx.stroke();

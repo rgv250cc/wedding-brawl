@@ -30,13 +30,17 @@ const CSS = `
 #controls .bar { display: flex; gap: 1em; flex-wrap: wrap; }
 #controls .bar button { font: inherit; padding: .8em 1.4em; border: 2px solid #1d0d00; border-radius: 6px; cursor: pointer; background: #fff; color: #1d0d00; }
 #controls .bar .go { background: #ffd23f; }
+#controls .opt { display: flex; gap: .8em; align-items: center; margin: 1.5cqh 0; cursor: pointer; color: #ffd23f; }
+#controls .opt input { width: 1.4em; height: 1.4em; accent-color: #ffd23f; }
 #controls .p1 { color: #ff4d3a; } #controls .p2 { color: #3aa0ff; }`;
 let root = null, keys = null, wait = null;
+const pingOn = () => { try { return localStorage.getItem('brawl-lobby-ping') !== '0'; } catch (e) { return true; } };
 
 function build() {
   const style = document.createElement('style'); style.textContent = CSS; document.head.append(style);
   root = document.createElement('div'); root.id = 'controls'; root.hidden = true; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'Controls');
   document.querySelector('.stage').append(root);
+  root.addEventListener('change', e => { if (e.target.dataset.ping !== undefined) try { localStorage.setItem('brawl-lobby-ping', e.target.checked ? '1' : '0'); } catch (err) {} });
   root.addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -56,6 +60,7 @@ function table(set, p, title, cls) {
 }
 function render() {
   root.innerHTML = `<div class="head"><h2>CONTROLS</h2><div class="bar"><button class="go" data-done>DONE</button><button data-reset>RESET KEYS</button></div></div><ul>${TIPS.map(t => `<li>${t}</li>`).join('')}</ul>
+    <label class="opt"><input type="checkbox" data-ping ${pingOn() ? 'checked' : ''}> PING ME WHEN SOMEONE ENTERS THE ONLINE LOBBY</label>
     <div class="cols">${table('solo', 0, 'ONE PLAYER (VS CPU, ONLINE)')}${table('duo', 0, 'TWO PLAYERS: P1', 'p1')}${table('duo', 1, 'TWO PLAYERS: P2', 'p2')}</div>
     <p>Click a key, then press the new one. Backspace clears a second key, Esc cancels.</p>`;
 }

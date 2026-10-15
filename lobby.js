@@ -660,6 +660,41 @@ function close() {
   if (core) core.away();
 }
 
+// ---- the lobby from outside: how many are in it (on the Play online button, without entering), and a ping when someone
+// new comes in, even mid-fight, unless it's switched off on the Controls page (localStorage brawl-lobby-ping = '0')
+let watched = false;
+function ping(name) {
+  try { if (localStorage.getItem('brawl-lobby-ping') === '0') return; } catch (e) {}
+  sfx('bell', { vol: .6 });
+  const stage = document.querySelector('.stage');
+  if (!stage) return;
+  let t = document.getElementById('lobby-ping');
+  if (!t) {
+    t = el('div'); t.id = 'lobby-ping'; t.setAttribute('role', 'status');
+    t.style.cssText = 'position:absolute;left:50%;top:2cqh;transform:translateX(-50%);z-index:9;padding:.7em 1.2em;border-radius:8px;' +
+      'background:#ffd23f;color:#1d0d00;border:3px solid #1d0d00;font:max(8px,1.6cqh)/1.3 "Press Start 2P",monospace;pointer-events:none;';
+    stage.append(t);
+  }
+  setText(t, name + ' is in the online lobby'); t.hidden = false;
+  clearTimeout(ping.t); ping.t = setTimeout(() => { t.hidden = true; }, 4500);
+}
+function watch() {
+  if (watched || typeof document === 'undefined') return;
+  watched = true;
+  acquire().then(r => {
+    if (!r || typeof r.onPeers !== 'function') return;
+    const known = new Set(), since = Date.now();
+    r.onPeers(ch => {
+      const here = ch.peers.filter(p => !p.isMe).map(readPeer).filter(p => p && p.st !== 'away');
+      const btn = document.getElementById('online-btn');
+      if (btn) btn.textContent = here.length ? `Play online · ${here.length} here` : 'Play online';
+      for (const p of here) if (!known.has(p.peer)) { known.add(p.peer); if (Date.now() - since > 4000) ping(p.name); }  // not for those already there
+      for (const id of [...known]) if (!here.some(p => p.peer === id)) known.delete(id);
+    });
+  }).catch(() => {});
+}
+if (typeof document !== 'undefined') setTimeout(watch, 1500);
+
 window.Lobby = {
   open, close, Core: { create, connect, makeLink },
   get state() { return Object.assign({ open: !!root && !root.hidden, view, banner: els.banner ? els.banner.textContent : '', fighting: !!fighting },

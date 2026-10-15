@@ -11,5 +11,5 @@ for f in $files; do
   case $f in */*|.*|*.py|*.mjs) echo "refusing to publish $f" >&2; exit 1;; esac
   cp "$f" deploy/public/
 done
-printf '/*\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n' > deploy/public/_headers
+printf '/*\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Robots-Tag: noindex\n' > deploy/public/_headers
 echo "deploy/public: $(ls deploy/public | wc -l | tr -d ' ') files, $(du -sh deploy/public | cut -f1)"

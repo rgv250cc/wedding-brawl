@@ -113,9 +113,12 @@ const copyKeys = k => JSON.parse(JSON.stringify(k));
 let LAYOUT = copyKeys(DEFAULT_KEYS);  // the Controls page (settings.js) remaps these; saved per browser
 try {
   const saved = JSON.parse(localStorage.getItem('brawl-keys'));
-  for (const set of ['solo', 'duo']) if (saved && Array.isArray(saved[set])) saved[set].forEach((m, i) => ACTIONS.forEach(a => {  // a key added since they saved
-    if (m && !m[a] && DEFAULT_KEYS[set][i]) m[a] = DEFAULT_KEYS[set][i][a].slice();
-  }));
+  for (const set of ['solo', 'duo']) if (saved && Array.isArray(saved[set])) {
+    const used = new Set(saved[set].flatMap(m => m ? Object.values(m).flat() : []));
+    saved[set].forEach((m, i) => ACTIONS.forEach(a => {  // an action added since they saved gets its default key, unless that key is taken
+      if (m && !m[a] && DEFAULT_KEYS[set][i]) m[a] = DEFAULT_KEYS[set][i][a].filter(c => !used.has(c));
+    }));  // nothing free: the layout fails the check below and falls back to the defaults
+  }
   const ok = l => Array.isArray(l) && l.every(m => ACTIONS.every(a => Array.isArray(m[a]) && m[a].length && m[a].every(c => typeof c === 'string' && c.length < 24)));
   if (saved && ok(saved.solo) && ok(saved.duo) && saved.solo.length === 1 && saved.duo.length === 2) LAYOUT = saved;
 } catch {}
@@ -216,12 +219,14 @@ let pic = { top: 0, h: 1, w: 1, left: 0 }, DPR = 1;  // where the backdrop sits 
 const coarse = () => matchMedia('(pointer: coarse)').matches;  // a phone or tablet: touch controls
 function fitPic() {  // cover the screen; when the picture is taller than the screen its top goes first, so the front of the floor stays in view
   const iw = bg ? bg.width : 3, ih = bg ? bg.height : 2, k = Math.max(W / iw, H / ih), h = ih * k;
-  pic = { w: iw * k, h, left: (W - iw * k) / 2, top: clamp(Math.min((H - h) / 2, H * .985 - stage.floor[1] * h), H - h, 0) };
-  pic.front = coarse() ? clamp((H * .76 - pic.top) / h, stage.floor[0] + .2, stage.floor[1]) : stage.floor[1];  // on a phone the floor stops above the thumbs
+  const top0 = clamp(Math.min((H - h) / 2, H * .985 - stage.floor[1] * h), H - h, 0);
+  pic = { w: iw * k, h, left: (W - iw * k) / 2, top: Math.min(0, Math.max(top0, H * .12 - h * (stage.floor[0] - .85 * stage.tall[0]))) };  // a head at the back of the floor stays on screen
+  pic.front = clamp(((coarse() ? .76 : .985) * H - pic.top) / h, stage.floor[0] + .2, stage.floor[1]);  // on a phone the floor stops above the thumbs
 }
 const feetY = z => pic.top + pic.h * (stage.floor[0] + z * ((pic.front ?? stage.floor[1]) - stage.floor[0]));
 const tall = z => pic.h * .85 * (stage.tall[0] + (stage.tall[1] - stage.tall[0]) * z * ((pic.front ?? stage.floor[1]) - stage.floor[0]) / (stage.floor[1] - stage.floor[0]));  // a person's height on screen at depth z (0 = back of the floor)
 const logEv = (...a) => { if (net && net.role === 'host') evs.push([++evSeq, performance.now(), ...a]); };  // replayed by the online guest
+const toF = y => q3((y - feetY(0)) / ((feetY(1) - feetY(0)) || 1)), fromF = v => feetY(0) + v * (feetY(1) - feetY(0)), unit = () => tall(.5) || H;  // screen y <-> floor band
 const snd = (name, x = .5, o = {}) => {
   logEv('s', name, q2(x), q2(o.pitch || 1), q2(o.vol ?? 1), o.dur || 0);
   window.SFX && window.SFX.play(name, Object.assign({ pan: (x - .5) * 1.4 }, o));
@@ -293,7 +298,7 @@ function at(e, up, fwd = 0) {  // a point on the figure, as fractions of its hei
   return [e.X + e.face * (lx * c - ly * s), e.Y + lx * s + ly * c];
 }
 function text(t, x, y, color = '#ffd23f', size = 1) {
-  logEv('t', t, q3(x / W), q3(y / H), color, size);
+  logEv('t', t, q3(x / W), toF(y), color, size);
   fx({ k: 'text', text: t, x, y, vy: -H * .1, life: .9, max: .9, color, size });
 }
 function pop(t, e, color, size) { const [x, y] = at(e, 1.05); text(t, x, y, color, size); }
@@ -304,6 +309,19 @@ function talk(e, text, o) {  // a subtitled line: typed out at the bottom while 
   logEv('v', e.id, text);
   S.subs.push({ who: e, text, t: 0 });
   if (S.subs.length > 3) S.subs.splice(1, 1);  // never fall far behind: drop the oldest waiting line
+}
+// ---- voices: one sprite per character (voices/<k>.mp3, made on the GPU box) and voices/index.json saying where each line sits in it.
+// Without them (or for a line with no recording) the old cartoon voice bits and blips play instead.
+let voiced = null, voxP = null;
+const voicePack = () => voxP || (voxP = fetch('voices/index.json').then(r => r.ok ? r.json() : null).catch(() => null).then(v => (voiced = v && v.v === 1 ? v : null)));
+async function voiceUp(k) {  // fetch one character's voice
+  const v = await voicePack();
+  return v && v.lines && v.lines[k] && window.SFX && SFX.loadUrl ? SFX.loadUrl('vc' + k, `voices/${k}.mp3`) : false;
+}
+const recorded = (e, text) => voiced && voiced.lines && voiced.lines[e.k] && voiced.lines[e.k][text];
+function pickLine(e, list) {  // a line this character has a recording of, when there is one
+  const said = list.filter(t => recorded(e, t));
+  return pick(said.length ? said : list);
 }
 function voiceOf(e) {  // the speaker's voice clip (voices.js, by apparent gender): random per match-up, the same on both online screens
   const V = window.VOICES, n = typeof e.k === 'number' && window.NICKNAMES && window.NICKNAMES[e.k];
@@ -316,13 +334,18 @@ function subs(dt) {  // host and guest alike: type the current line, play the sp
   const s = S.subs[0];
   if (!s) return;
   if (s.who.gone && s.who.left) { S.subs.shift(); return; }
-  if (s.voice === undefined) { s.voice = voiceOf(s.who); if (s.voice && window.SFX) SFX.play(s.voice, { pan: (s.who.x - .5) * 1.2, vol: .9 }); }
+  if (s.voice === undefined) {
+    const seg = recorded(s.who, s.text);
+    if (seg && window.SFX && SFX.has('vc' + s.who.k)) {  // their own voice saying it
+      s.voice = 'vc'; s.len = seg[1] / 1000; SFX.play('vc' + s.who.k, { from: seg[0] / 1000, len: seg[1] / 1000, pan: (s.who.x - .5) * 1.2, vol: 1 });
+    } else { s.voice = voiceOf(s.who); if (s.voice && window.SFX) SFX.play(s.voice, { pan: (s.who.x - .5) * 1.2, vol: .9 }); }
+  }
   const before = Math.floor(s.t * 30); s.t += dt; const now = Math.floor(s.t * 30);
-  if (now <= s.text.length) {
+  if (now <= s.text.length || s.t < (s.len || 0)) {
     s.who.talk = .12;
     if (!s.voice && Math.floor(now / 2) > Math.floor(before / 2) && window.SFX) SFX.play('blip', { pan: (s.who.x - .5) * 1.2, pitch: .7 + (s.who.seed % 1) * .8 + R() * .12, vol: .7 });
   }
-  if (s.t > s.text.length / 30 + 1.1) S.subs.shift();
+  if (s.t > Math.max(s.text.length / 30, s.len || 0) + 1.1) S.subs.shift();
 }
 function drawSubs() {
   const s = S.subs[0];
@@ -337,12 +360,12 @@ function drawSubs() {
   ctx.fillStyle = '#fff'; ctx.fillText(text, x + size * .7 + w1, y);
 }
 function spray(x, y, n, color, vx, vy, r, life = .8, local) {
-  if (!local) logEv('y', q3(x / W), q3(y / H), n, color, q3(vx / H), q3(vy / H), q3(r / H), life);
+  if (!local) logEv('y', q3(x / W), toF(y), n, color, q3(vx / H), q3(vy / H), q3(r / unit()), life);
   for (let i = 0; i < n; i++) fx({ k: 'drop', x, y, vx: vx * (.4 + R() * .8) + (R() - .5) * H * .15, vy: -vy * (.3 + R() * .9), color, r: r * (.6 + R() * .7), life, max: life });
 }
-function spark(x, y, r) { logEv('k', q3(x / W), q3(y / H), q3(r / H)); fx({ k: 'spark', x, y, life: .22, max: .22, r }); }
-function swoosh(x, y, face, r) { logEv('w', q3(x / W), q3(y / H), face, q3(r / H)); fx({ k: 'swoosh', x, y, face, r, life: .12, max: .12 }); }
-function flashFx(x, y, face, r) { logEv('f', q3(x / W), q3(y / H), face, q3(r / H)); fx({ k: 'flash', x, y, face, r, life: .35, max: .35 }); }
+function spark(x, y, r) { logEv('k', q3(x / W), toF(y), q3(r / unit())); fx({ k: 'spark', x, y, life: .22, max: .22, r }); }
+function swoosh(x, y, face, r) { logEv('w', q3(x / W), toF(y), face, q3(r / unit())); fx({ k: 'swoosh', x, y, face, r, life: .12, max: .12 }); }
+function flashFx(x, y, face, r) { logEv('f', q3(x / W), toF(y), face, q3(r / unit())); fx({ k: 'flash', x, y, face, r, life: .35, max: .35 }); }
 function puddle(x, z, kind, size = 1, rate = 3) {
   S.puddles.push({ x: clamp(x, .04, .96), z: clamp(z, .01, .99), r: 0, max: (.03 + R() * .025) * size, kind, life: 30, rate,
                    dots: Array.from({ length: 5 }, () => [R() * 2 - 1, R() * 2 - 1]) });
@@ -376,7 +399,7 @@ function attack(e, kind) {  // punch or kick: starts a chain, continues one afte
   if (it && e.chainN > 3) return;
   faceFoe(e);
   if (e.curse === 'cake' && R() < .5) { e.face = -e.face; pop('?!', e, '#fff6e6', .7); }  // cream in the eyes: half the swings go the wrong way
-  e.move = MOVES[key]; set(e, 'attack'); e.hitConfirm = false;
+  e.move = MOVES[key]; set(e, 'attack'); e.hitConfirm = false; e.swingN = (e.swingN || 0) + 1;
   e.vx = e.move.lunge ? e.face * e.move.lunge : e.vx + e.face * (e.move.heavy ? .14 : .1);  // every blow steps in
   snd(e.move.heavy ? 'swingHeavy' : 'swing', e.x, { pitch: e.move.heavy ? .9 : 1.15 });
 }
@@ -390,7 +413,7 @@ function faceFoe(e, any) {  // a blow turns toward a rival who is close and in t
 }
 function roll(e, [dx, dz], chase) {  // toward: through the rival (a cross-up); away: slower and safer; up/down: a sidestep; after a landed blow: a short chase dash
   const f = S.players.find(p => p !== e), toward = f ? Math.sign(f.x - e.x) || e.face : e.face;
-  if (!dx && !dz) dx = -toward;  // the ROLL button with the stick at rest: back off
+  if (!dx && !dz) dx = chase ? toward : -toward;  // the ROLL button with the stick at rest: back off (or chase them)
   const kind = chase ? 'chase' : dz && !dx ? 'side' : dx === toward ? 'fwd' : 'back', k = ROLLS[kind];
   e.rollStack = S.t - (e.rolledAt ?? -9) < 1 ? Math.min(5, (e.rollStack || 0) + 1) : 0; e.rolledAt = S.t;  // roll after roll: each one slower, safe a bit later
   const t = k.t * (1 + .08 * e.rollStack);
@@ -546,7 +569,7 @@ function glyphs() {  // the rain's glyphs drawn once (white heads, green tails),
   glyphs.busy = true;
   const make = () => {
     if (glyphSheet) return;
-    const ok = document.fonts.check('40px "Noto Sans Egyptian Hieroglyphs"', GLYPHS[0]);
+    const ok = [...document.fonts].some(f => f.family.replace(/"/g, '') === 'Noto Sans Egyptian Hieroglyphs' && f.status === 'loaded');
     const set = ok ? GLYPHS : Array.from('ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜ'), cs = 48;
     const c = Object.assign(document.createElement('canvas'), { width: cs * set.length, height: cs * 2 }), g = c.getContext('2d');
     g.font = `${cs * .78}px ${ok ? HIERO : 'monospace'}`; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -573,7 +596,7 @@ function dmgNum(v, dmg, kind) {  // the damage each blow does: pops up big over 
   dmgFx(n + (kind === 'launch' ? '!' : ''), x, y, size, kind === 'chip' ? '#b8c2cc' : kind === 'special' ? '#CC79A7' : kind === 'launch' ? '#F0E442' : '#ffffff');
 }
 function dmgFx(t, x, y, size, color) {
-  logEv('d', t, q3(x / W), q3(y / H), q3(size / H), color);
+  logEv('d', t, q3(x / W), toF(y), q3(size / H), color);
   const all = S.fx.filter(f => f.k === 'dmg'); if (all.length >= 6) S.fx.splice(S.fx.indexOf(all[0]), 1);
   fx({ k: 'dmg', text: String(t), x, y, size, color, life: .8, max: .8 });
 }
@@ -581,7 +604,7 @@ function special(e) {  // cast: a super freeze and a banner so everyone sees it 
   if ((e.sp || 0) < 1) return;
   const f = S.players.find(p => p !== e), s = spOf(e.k);
   if (!f) return;
-  e.sp = 0; set(e, 'cast'); e.cast = s.type; e.face = Math.sign(f.x - e.x) || e.face; e.vx = e.vz = 0; e.castX = f.x; e.castZ = f.z;  // the bolt heads where they stand now
+  e.sp = 0; set(e, 'cast'); e.cast = s.type; e.castN = (e.castN || 0) + 1; e.face = Math.sign(f.x - e.x) || e.face; e.vx = e.vz = 0; e.castX = f.x; e.castZ = f.z;  // the bolt heads where they stand now
   S.freeze = Math.max(S.freeze, .4); S.dimBy = e; S.cutin = { e, t: 1.1 };  // super freeze: the room darkens, the caster's face cuts in
   S.banner = String(s.name).toUpperCase().slice(0, 24); S.sub = `${e.name.toUpperCase()}'S SPECIAL`; S.bannerT = 1.5;
   const [x, y] = at(e, .6); burst(x, y, e.h * 1.2, CURSE[s.type] ? CURSE[s.type].color : '#ff6ad5');
@@ -625,12 +648,13 @@ function curseTick(e, n, dt) {  // every frame on a cursed fighter (host)
   if (e.keepCurse || S.phase === 'finish') return;
   if ((e.curseT -= dt) <= 0 || S.phase !== 'fight') return uncurse(e);
   if (e.curse === 'dizzy' && ctrl[S.players.indexOf(e)] !== 'net') { n.mx = -(n.mx || 0); n.mz = -(n.mz || 0); if (n.roll) n.roll = n.roll.map(v => -v); }  // left is right
-  if (CURSE[e.curse].g === 'L' && BTN.some(k => n[k])) e.curseT = Math.max(e.curseT - .07, 1.2 - (S.t - e.curseAt));  // mash to break free sooner (never under 1.2 s)
+  if (CURSE[e.curse].g === 'L' && BTN.some(k => n[k])) e.curseT = Math.min(e.curseT, Math.max(e.curseT - .07, 1.2 - (S.t - e.curseAt)));  // mash to break free sooner (never under 1.2 s)
   if (e.state === 'cursed') { BTN.forEach(k => n[k] = false); n.roll = null; }
 }
 function curseMove(e, dt) {  // what a helpless victim does while it lasts
   const c = e.curse, foe = S.players.find(p => p !== e);
   if (!c) return set(e, 'idle');
+  if (e.keepCurse) { e.vx = e.vz = 0; return; }  // the finisher's spoon stands still for Moses
   if (c === 'pig' || c === 'chicken' || c === 'spoon') {  // the victim steers (a little faster; a spoon only hops along); left alone, it waddles about
     const n = e.inp, k = c === 'spoon' ? .5 : 1.2;
     if (n.mx || n.mz) { e.vx = (n.mx || 0) * WALK * k; e.vz = (n.mz || 0) * ZWALK * k; if (n.mx) e.face = Math.sign(n.mx); }
@@ -659,7 +683,7 @@ function curseMove(e, dt) {  // what a helpless victim does while it lasts
   else { e.vx = e.vz = 0; }  // disco, ice, fart: stuck where they stand
   if (c === 'disco' && R() < dt * 1.2) pop(pick(['GROOVY!', 'YEAH!', 'WOO!']), e, '#ff6ad5', .7);
 }
-function burst(x, y, r, color) { logEv('b', q3(x / W), q3(y / H), q3(r / H), color); fx({ k: 'burst', x, y, r, color, life: .5, max: .5 }); }
+function burst(x, y, r, color) { logEv('b', q3(x / W), toF(y), q3(r / unit()), color); fx({ k: 'burst', x, y, r, color, life: .5, max: .5 }); }
 function grab(e) {
   if (e.item) return throwHeld(e);
   const it = S.items.find(i => !i.held && i.y === 0 && Math.abs(i.x - e.x) < .05 && Math.abs(i.z - e.z) < .05);
@@ -690,7 +714,7 @@ function finishThem(v) {  // the loser staggers, begs; the winner has a few seco
   set(v, 'dazed'); v.dazeFor = 99; v.vx = v.vz = 0;
   S.banner = 'FINISH THEM!'; S.bannerT = 99; S.sub = 'PRESS ANY ATTACK'; S.shake = Math.max(S.shake, H * .02); S.subs.length = 0;
   snd('boom'); snd('gasp', v.x);
-  talk(v, pick(BEG));
+  talk(v, pickLine(v, BEG));
 }
 function finishing(dt) {
   const w = S.winner, i = S.players.indexOf(w);
@@ -698,7 +722,7 @@ function finishing(dt) {
     let go = false;
     if (ctrl[i] === 'cpu') go = S.phaseT > 1.8;
     else { ctrl[i] === 'net' ? netIn(w) : human(w, i); go = w.inp.punch || w.inp.kick || w.inp.grab; }
-    if (S.spoonFin) return spoonFinale(dt, w, S.victim, go);
+    if (S.spoonFin) return spoonFinale(dt, w, S.victim, go && ctrl[i] !== 'cpu');
     if (go && S.phaseT > .5 && spOf(w.k).type === 'spoon') { S.spoonFin = { t: -.001 }; S.banner = ''; S.sub = ''; S.subs.length = 0; return; }
     if (go && S.phaseT > .5) {
       const fin = window.NICKNAMES && window.NICKNAMES[w.k] && window.NICKNAMES[w.k].fin;
@@ -781,7 +805,7 @@ function flash(e) {
     if (v === e || v.gone || DOWN.has(v.state) || v.y > .2) continue;
     const dx = (v.x - e.x) * e.face;
     if (dx < .02 || dx > .5 || Math.abs(v.z - e.z) > .07 || v.face !== -e.face) continue;  // only a picture from the front blinds
-    if (v.role === 'fighter' && S.phase === 'fight') {
+    if (v.role === 'fighter' && S.phase === 'fight' && v.state !== 'cursed') {
       set(v, 'dazed'); v.dazeFor = 2; v.vx = v.vz = 0; pop('BLINDED!', v, '#ffffff'); snd('daze', v.x);
       S.white[S.players.indexOf(v)] = .6;
     } else if (v.role === 'fighter' || v.state === 'smile') pop('CLICK!', v, '#ffffff', .7);
@@ -794,12 +818,13 @@ function cpu(p, dt) {
   const n = p.inp, lv = p.lv; BTN.forEach(k => n[k] = false); n.roll = null;
   const foe = S.players[0] === p ? S.players[1] : S.players[0], ph = S.photog;
   const free = p.state === 'idle' || p.state === 'walk';
-  if (free && foe.state === 'attack' && foe.move && foe.st < foe.move.hit && p.sawSwing !== foe.move && Math.abs(foe.x - p.x) < foe.move.reach + .03 && Math.abs(foe.z - p.z) < .07) {
-    p.sawSwing = foe.move; if (R() < (lv.roll || 0)) { n.roll = [R() < .5 ? -Math.sign(foe.x - p.x) : Math.sign(foe.x - p.x), 0]; return; }
+  if (free && foe.state === 'attack' && foe.move && foe.st < foe.move.hit && p.sawSwing !== foe.swingN && Math.abs(foe.x - p.x) < foe.move.reach + .03 && Math.abs(foe.z - p.z) < .07) {
+    p.sawSwing = foe.swingN; if (R() < (lv.roll || 0)) { n.roll = [R() < .5 ? -Math.sign(foe.x - p.x) : Math.sign(foe.x - p.x), 0]; return; }
   }
-  if (free && foe.state === 'cast' && p.sawCast !== foe.st && R() < (lv.roll || 0) * 1.5) { p.sawCast = foe.st; n.roll = [0, p.z > .5 ? -1 : 1]; return; }
+  if (free && foe.state === 'cast' && p.sawCast !== foe.castN) { p.sawCast = foe.castN; if (R() < (lv.roll || 0) * 1.5) { n.roll = [0, p.z > .5 ? -1 : 1]; return; } }
   if (free && p.sp >= 1 && R() < dt * 1.2) { n.special = true; return; }
-  if (p.state === 'grabbed' && p.st < .15 && R() < lv.grab * 2) { n.grab = true; return; }
+  if (p.state !== 'grabbed') p.techTried = false;
+  else if (p.st < .15 && !p.techTried) { p.techTried = true; if (R() < lv.grab * 2) { n.grab = true; return; } }  // one roll of the dice per grab
   if (ph && ph.state === 'aim' && ph.st > .55 && p.sawShot !== ph.shots) {  // the flash is coming
     p.sawShot = ph.shots;
     if (R() < lv.dodge && Math.abs(ph.z - p.z) < .1) n.jump = true;
@@ -827,7 +852,7 @@ function cpu(p, dt) {
   if (ranged && Math.abs(dx) < .5) { p.face = Math.sign(dx) || p.face; n[shoots ? 'punch' : 'grab'] = true; }
   else if (Math.abs(dx) < want + .03) {
     p.face = Math.sign(dx) || p.face;
-    if (g === foe && Math.abs(dx) < .075 && R() < (foe.state === 'block' ? lv.grab * 4 : lv.grab)) n.grab = true; else n[R() < .6 ? 'punch' : 'kick'] = true;
+    if (g === foe && Math.abs(dx) < .075 && R() < (foe.state === 'block' ? 0 : S.t - (foe.blockAt ?? -9) < .6 ? lv.grab * 4 : lv.grab)) n.grab = true; else n[R() < .6 ? 'punch' : 'kick'] = true;
   }
 }
 
@@ -836,9 +861,11 @@ const BTN = ['punch', 'kick', 'grab', 'jump', 'special'];  // buttons that act w
 const taps = [{}, {}], touch = { on: false, mx: 0, mz: 0, tapped: new Set() };  // tapped: buttons pressed since the last frame (a tap shorter than a frame still counts)
 function rollTap(i, b) {  // double-tap a direction, or press ROLL, = roll that way; [0, 0] = roll back
   const s = taps[i], now = performance.now() / 1000;
-  let r = b.roll && !s.btn ? [Math.sign(b.mx), Math.sign(b.mz)] : null; s.btn = b.roll;
+  const dirOf = v => Math.abs(v) > .4 ? Math.sign(v) : 0;
+  let r = b.roll && !s.btn ? [dirOf(b.mx), dirOf(b.mz)] : null; s.btn = b.roll;
   for (const ax of ['x', 'z']) {
-    const v = ax === 'x' ? b.mx : b.mz, d = Math.abs(v) > .5 ? Math.sign(v) : 0, last = s['t' + ax];
+    const v = ax === 'x' ? b.mx : b.mz, a = Math.abs(v), last = s['t' + ax];
+    const d = a > .6 ? Math.sign(v) : a < .3 || Math.sign(v) !== s[ax] ? 0 : s[ax];  // pressed past .6, released under .3
     if (d && d !== s[ax]) {  // a fresh press of this direction
       if (last && last[0] === d && now - last[1] < TAP) { r = ax === 'x' ? [d, 0] : [0, d]; s['t' + ax] = null; }
       else s['t' + ax] = [d, now];
@@ -1069,7 +1096,7 @@ function update(dt) {
   S.t += dt; S.phaseT += dt; S.bannerT -= dt;
   if (S.phase === 'intro' && !S.taunted && S.phaseT > .3) {
     S.taunted = true; const [a, b] = S.players;
-    talk(a, pick(TAUNT), { to: b }); talk(b, pick(REPLY), { to: a });
+    talk(a, pickLine(a, TAUNT), { to: b }); talk(b, pickLine(b, REPLY), { to: a });
   }
   if (S.phase === 'intro' && !S.called && S.phaseT > 2.8) {
     S.called = true;
@@ -1089,7 +1116,7 @@ function update(dt) {
     const w = S.winner, wi = S.players.indexOf(w);
     if (S.phaseT > 1.4 && !S.crowned && (!w || !DOWN.has(w.state) || S.phaseT > 4)) {
       S.crowned = true; S.bannerT = 9; if (!S.finished) S.sub = '';
-      if (w && !S.finished) talk(w, pick(lines(w.k).concat(GLOAT)), { to: S.players.find(p => p !== w) });
+      if (w && !S.finished) talk(w, pickLine(w, lines(w.k).concat(GLOAT)), { to: S.players.find(p => p !== w) });
       if (!w) { S.banner = 'DRAW'; snd('gasp'); }  // the round is replayed
       else {  // every battle is best of three rounds, each in a different scene
         set(w, 'win'); snd('cheer', w.x); S.guests.forEach(g => g.cheer = 3);
@@ -1119,7 +1146,7 @@ function update(dt) {
   for (const s of S.shots) {
     s.x += s.vx * dt; s.spin += dt * 16;
     if (s.type !== 'cork' && s.type !== 'laser') { s.vy -= 2.6 * dt; s.y += s.vy * dt; }
-    const v = S.people.find(v => v !== s.owner && !v.gone && !DOWN.has(v.state) && Math.abs(v.z - s.z) < .05 && Math.abs(v.x - s.x) < .03 && v.y < s.y);
+    const v = S.people.find(v => v !== s.owner && !v.gone && !DOWN.has(v.state) && !untouchable(v) && Math.abs(v.z - s.z) < .05 && Math.abs(v.x - s.x) < .03 && v.y < s.y);
     if (v) {
       const [dmg, word, sound] = THROWN[s.type];
       const scale = v.role === 'fighter' && s.owner.role === 'fighter' ? comboUp(s.owner, v) : 1;
@@ -1191,7 +1218,7 @@ function person_(e, dt) {
   }
   e.st += dt; e.cd -= dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt;
   if (e.say && (e.say.t -= dt) <= 0) e.say = null;
-  const free = e.state === 'idle' || e.state === 'walk', pinned = !!e.remote && free && S.phase === 'fight' && !(e.y > .05 && e.remote[2] < .02);  // the host flies a jump it started
+  const free = e.state === 'idle' || e.state === 'walk', pinned = !!e.remote && free && S.phase === 'fight' && !((e.y > .05 || e.vy > 0) && e.remote[2] < .02);  // the host flies a jump it started
   e.talk -= dt;
   if (e.role === 'fighter' && free && S.phase === 'fight' && (e.quipIn -= dt) <= 0) {
     e.quipIn = 16 + R() * 14;
@@ -1203,12 +1230,13 @@ function person_(e, dt) {
     if (S.t - (e.blockAt ?? -9) > 1) e.guard = Math.min(1, (e.guard ?? 1) + dt * GUARDBAR.regen);
     const rival = S.players.find(p => p !== e), side = rival ? Math.sign(rival.x - e.x) : 0;
     if (side && side !== e.side) { e.side = side; e.sideAt = S.t; }  // they just crossed over
-    if (e.state === 'grabbed' && n.grab && e.st < .2 && e.grabber) tech(e);
+    if (e.state === 'grabbed' && n.grab && e.st < (e.remote ? .29 : .2) && e.grabber) tech(e);
     if (e.curse === 'cake' && n.grab) { e.curseT -= .35; n.grab = false; pop('WIPE!', e, '#fff6e6', .7); }  // wipe some cream off
     if (pinned) {  // the online guest moves its own fighter; the host takes its word for where it is while it's free
       const [x, z, y, f, walking] = e.remote, nx = clamp(x, .04, .96);
       if (!e.y && y > .05) snd('swing', e.x, { pitch: .6 });
       stepSpeed(e, clamp(n.mx || 0, -1, 1), clamp(n.mz || 0, -1, 1)); e.x = nx; e.z = clamp(z, 0, 1); e.y = clamp(y, 0, 3); e.vy = 0; e.face = f < 0 ? -1 : 1;
+      if (!e.y) e.airN = 0;
       e.state = walking ? 'walk' : 'idle'; e.running = walking === 2; if (e.running) e.ranAt = S.t;
       if (n.grab && !throwFoe(e)) grab(e);
     } else if (free && S.phase === 'fight') {
@@ -1954,6 +1982,7 @@ async function newMatch(pair, level = 1, round = 0) {
   const androids = L.cards.map((c, k) => c.cy ? k : -1).filter(k => k >= 0);
   pair = pair && pair.length === 2 ? pair : shuffle(androids.length >= 2 ? androids : [...Array(n).keys()]).slice(0, 2);
   const [a, b] = await Promise.all(pair.map(art)), cast = (await castPool()).filter(c => !pair.includes(c.k));
+  await Promise.race([Promise.all(pair.map(voiceUp)), new Promise(r => setTimeout(r, 1500))]);  // their voices, if they come quickly
   if (run !== startSeq) return;  // the game was stopped while the cut-outs loaded
   const players = [person(pair[0], a, 'fighter', .3, .55), person(pair[1], b, 'fighter', .7, .55)];
   players.forEach((p, i) => { p.lv = LEVELS[mode === 'cpu' && i === 1 ? level - 1 : 1]; p.sp = match.sp[i] || 0; });
@@ -2013,8 +2042,9 @@ function pack() {
     P: S.people.filter(e => !e.gone).map(e => [e.id, e.k === 'photog' ? -1 : e.k, ROLES.indexOf(e.role), q3(e.x), q3(e.z), q2(e.y), e.face,
       STATES.indexOf(e.state), q2(e.st), Math.round(e.hp), q2(e.rot), e.item ? THINGS.indexOf(e.item.type) : e.prop ? 20 + THINGS.indexOf(e.prop) : -1,
       e.item ? e.item.ammo : 0, MOVE_KEYS.findIndex(k => MOVES[k] === e.move),
-      (e.flash > 0) | (e.run << 1) | ((e.cheer > 0) << 2) | ((e.aimT > 0) << 3) | (e.threw << 4) | ((e.state === 'walk' || e.state === 'horse') << 5),
-      e.say ? e.say.text : 0, e.curse ? CURSES.indexOf(e.curse) : -1]),
+      (e.flash > 0) | (e.run << 1) | ((e.cheer > 0) << 2) | ((e.aimT > 0) << 3) | (e.threw << 4) | ((e.state === 'walk' || e.state === 'horse') << 5) | ((e.vy > 0 && !!e.remote && e.remote[2] < .02) << 6) | (!!e.xEyes << 7),
+      e.say ? e.say.text : 0, e.curse ? CURSES.indexOf(e.curse) : -1,
+      e.curse === 'spoon' ? q2(e.finBend ?? (e.bendAt ? .7 * Math.max(0, 1 - (S.t - e.bendAt) / .4) : 0)) : 0]),
     I: S.items.filter(i => !i.held).map(i => [THINGS.indexOf(i.type), q3(i.x), q3(i.z), q2(i.y), i.ammo]),
     X: S.shots.map(s => [THINGS.indexOf(s.type), q3(s.x), q3(s.z), q2(s.y), Math.sign(s.vx), q2(s.spin % TAU)]),
     U: S.puddles.slice(-14).map(p => [q3(p.x), q3(p.z), q3(p.r), WET.indexOf(p.kind), q2(p.life)]),
@@ -2063,7 +2093,8 @@ function unpack(d) {
     }
     if (hp < e.hp) e.hurtAt = S.t;
     e.hp = hp; e.trot = rot; e.curse = CURSES[a[16]] || null;
-    if (local && y > e.y + .1) { e.y = y; e.vy = Math.max(e.vy || 0, 1.2); }  // the host started a jump for me (after an uppercut): fly it
+    if (local && (flags & 64) && e.y < .02 && y > .02) { e.y = y; e.vy = Math.max(e.vy || 0, 1.2); }  // the host started a jump for me (after an uppercut): fly it
+    e.finBend = e.curse === 'spoon' ? clamp(+a[17] || 0, 0, 2) : undefined; e.xEyes = !!(flags & 128);
     e.item = thing >= 0 && thing < 20 ? { type: THINGS[thing], ammo } : null; e.prop = thing >= 20 ? THINGS[thing - 20] : null;
     e.move = MOVES[MOVE_KEYS[mv]] || null;
     e.flash = flags & 1 ? .05 : 0; e.run = !!(flags & 2); e.cheer = flags & 4 ? .1 : 0; e.aimT = flags & 8 ? .05 : 0; e.threw = !!(flags & 16); e.moving = !!(flags & 32);
@@ -2095,7 +2126,7 @@ async function spawn(a) {  // a person the host has and we don't yet: load their
   S.pending.delete(id);
   const e = person(k === -1 ? 'photog' : k, img, ROLES[role] || 'guest', a[3], a[4]);
   e.id = id; e.tx = a[3]; e.tz = a[4]; e.ty = a[5]; e.face = a[6] < 0 ? -1 : 1; e.state = STATES[a[7]] || 'idle'; e.st = a[8];
-  if (role === 0) e.lv = LEVELS[1];
+  if (role === 0) { e.lv = LEVELS[1]; voiceUp(k); }
   S.byId.set(id, e); S.people.push(e);
   const fs = S.people.filter(p => p.role === 'fighter');
   if (fs.length === 2) {
@@ -2107,14 +2138,14 @@ function replay(ev) {
   const [, kind, ...a] = ev;
   const n = (v, lo, hi, d) => Number.isFinite(+v) ? clamp(+v, lo, hi) : d;  // everything from the host is untrusted
   if (kind === 's') window.SFX && window.SFX.play(String(a[0]), { pan: (n(a[1], 0, 1, .5) - .5) * 1.4, pitch: n(a[2], .3, 3, 1), vol: n(a[3], 0, 2, 1), dur: n(a[4], 0, 8, 0) || undefined });
-  else if (kind === 't') fx({ k: 'text', text: String(a[0]).slice(0, 30), x: a[1] * W, y: a[2] * H, vy: -H * .1, life: .9, max: .9, color: a[3], size: a[4] });
-  else if (kind === 'y') spray(n(a[0], -1, 2, 0) * W, n(a[1], -1, 2, 0) * H, n(a[2], 0, 30, 0), String(a[3]), n(a[4], -3, 3, 0) * H, n(a[5], -3, 3, 0) * H, n(a[6], 0, .05, .01) * H, n(a[7], 0, 2, .8), true);
-  else if (kind === 'k') fx({ k: 'spark', x: a[0] * W, y: a[1] * H, r: a[2] * H, life: .22, max: .22 });
-  else if (kind === 'w') fx({ k: 'swoosh', x: a[0] * W, y: a[1] * H, face: a[2], r: a[3] * H, life: .12, max: .12 });
+  else if (kind === 't') fx({ k: 'text', text: String(a[0]).slice(0, 30), x: n(a[1], -1, 2, .5) * W, y: fromF(n(a[2], -9, 9, 0)), vy: -H * .1, life: .9, max: .9, color: String(a[3]).slice(0, 40), size: n(a[4], 0, 3, 1) });
+  else if (kind === 'y') spray(n(a[0], -1, 2, 0) * W, fromF(n(a[1], -9, 9, 0)), n(a[2], 0, 30, 0), String(a[3]), n(a[4], -3, 3, 0) * H, n(a[5], -3, 3, 0) * H, n(a[6], 0, .3, .05) * unit(), n(a[7], 0, 2, .8), true);
+  else if (kind === 'k') fx({ k: 'spark', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), r: n(a[2], 0, 2, .2) * unit(), life: .22, max: .22 });
+  else if (kind === 'w') fx({ k: 'swoosh', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), face: a[2] < 0 ? -1 : 1, r: n(a[3], 0, 2, .2) * unit(), life: .12, max: .12 });
   else if (kind === 'v') { const e = S.byId.get(a[0]); if (e) talk(e, String(a[1])); }
-  else if (kind === 'f') fx({ k: 'flash', x: a[0] * W, y: a[1] * H, face: a[2], r: a[3] * H, life: .35, max: .35 });
-  else if (kind === 'd') fx({ k: 'dmg', text: String(a[0]).slice(0, 6), x: n(a[1], -1, 2, 0) * W, y: n(a[2], -1, 2, 0) * H, size: n(a[3], 0, .2, .05) * H, color: String(a[4]).slice(0, 9), life: .8, max: .8 });
-  else if (kind === 'b') fx({ k: 'burst', x: a[0] * W, y: a[1] * H, r: n(a[2], 0, 2, .3) * H, color: String(a[3]).slice(0, 9), life: .5, max: .5 });
+  else if (kind === 'f') fx({ k: 'flash', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), face: a[2] < 0 ? -1 : 1, r: n(a[3], 0, 3, 1) * unit(), life: .35, max: .35 });
+  else if (kind === 'd') fx({ k: 'dmg', text: String(a[0]).slice(0, 6), x: n(a[1], -1, 2, 0) * W, y: fromF(n(a[2], -9, 9, 0)), size: n(a[3], 0, .2, .05) * H, color: String(a[4]).slice(0, 9), life: .8, max: .8 });
+  else if (kind === 'b') fx({ k: 'burst', x: n(a[0], -1, 2, 0) * W, y: fromF(n(a[1], -9, 9, 0)), r: n(a[2], 0, 3, 1) * unit(), color: String(a[3]).slice(0, 9), life: .5, max: .5 });
 }
 function replica(dt) {  // the online guest's frame: no game logic, just easing toward the host's picture and moving my own fighter
   S.t += dt; S.phaseT += dt; S.bannerT -= dt;
@@ -2136,6 +2167,9 @@ function replica(dt) {  // the online guest's frame: no game logic, just easing 
       if (b.jump && !S.jumpHeld && !e.y) e.vy = 2.3;
       S.jumpHeld = b.jump;
       e.x = clamp(e.x + e.vx * dt, .04, .96); e.z = clamp(e.z + e.vz * dt, 0, 1);
+      const o = S.players[0], gap = o ? e.x - o.x : 1;  // its half of the push-apart (the host does the other half)
+      if (o && o.state !== 'roll' && !DOWN.has(o.state) && o.state !== 'cursed' && e.y < .3 && Math.abs(gap) < .035 && Math.abs(e.z - o.z) < .05)
+        e.x = clamp(e.x + (.035 - Math.abs(gap)) / 2 * (Math.sign(gap) || -o.face), .04, .96);
       if (e.y > 0 || e.vy > 0) { e.vy -= 7 * dt; e.y = Math.max(0, e.y + e.vy * dt); if (!e.y) e.vy = 0; }
       e.tx = e.x; e.tz = e.z; e.ty = e.y;
     } else if (e.tx !== undefined) {
@@ -2210,7 +2244,7 @@ function touchPad() {  // phones: a stick that appears under the left thumb, six
   .tpad .b.on { background: rgba(240,228,66,.9); color: #1d0d00; opacity: 1; }
   .tpad .b.special { background: rgba(204,121,167,.5); font-size: 20px; } .tpad .b.special.ready { opacity: 1; animation: tpulse .5s infinite alternate; }
   @keyframes tpulse { to { box-shadow: 0 0 18px 6px #CC79A7; } }
-  .tpad .quit { position: absolute; top: calc(6px + env(safe-area-inset-top, 0px)); left: calc(50% + 34px); pointer-events: auto; height: 32px; border-radius: 16px;
+  .tpad .quit { position: absolute; z-index: 2; top: calc(6px + env(safe-area-inset-top, 0px)); left: calc(50% + 34px); pointer-events: auto; height: 32px; border-radius: 16px;
     border: 2px solid rgba(255,255,255,.6); background: rgba(0,0,0,.45); color: #fff; font: 9px/1 "Press Start 2P", monospace; padding: 0 10px; touch-action: manipulation; }
   @media (orientation: portrait) { .tpad::after { content: 'TURN YOUR PHONE SIDEWAYS'; position: absolute; inset: 0; display: grid; place-items: center; padding: 24px;
     background: rgba(12,8,4,.94); color: #ffd23f; font: 14px/1.6 "Press Start 2P", monospace; text-align: center; pointer-events: auto; } }`;

@@ -29,6 +29,11 @@ function makeNoise(c) {
 }
 ['pointerdown', 'keydown', 'touchstart'].forEach(e => addEventListener(e, ensure, { capture: true, passive: true }));
 
+const urls = {};
+function loadUrl(name, url) {  // a sound file fetched once (a voice sprite: play a piece of it with { from, len } in seconds)
+  return urls[name] || (urls[name] = fetch(url).then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+    .then(b => new OfflineAudioContext(1, 1, 44100).decodeAudioData(b)).then(buf => { BANK[name] = [buf]; return true; }, () => false));
+}
 async function load(map) {  // decode the recordings; works before any click (an offline context needs no permission)
   const dc = new OfflineAudioContext(1, 1, 44100);
   await Promise.all(Object.entries(map).map(async ([name, uris]) => {
@@ -70,7 +75,7 @@ function wobble(o, t, d, rate, depth) {  // vibrato
   const l = ac.createOscillator(), g = ac.createGain();
   l.frequency.value = rate; g.gain.value = depth; l.connect(g).connect(o.frequency); l.start(t); l.stop(t + d + .1);
 }
-function clip(b, buf, t, rate) { const s = ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate; s.connect(b); s.start(t); }
+function clip(b, buf, t, rate, from, len) { const s = ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate; s.connect(b); from === undefined ? s.start(t) : s.start(t, from, len); }
 
 const S = {  // synthesised fallbacks and the sounds no free recording covered
   punch: (b, t, p) => { osc(b, 'sine', 170 * p, 55, t, .13, .9); hiss(b, 'bandpass', 1800, 900, t, .06, .7, 1.2); },
@@ -137,7 +142,7 @@ const S = {  // synthesised fallbacks and the sounds no free recording covered
 
 function sound(name, t, o) {  // schedule one sound at time t on the current context
   const bank = BANK[name], b = bus(o.pan || 0, (o.vol ?? 1) * (GAIN[name] ?? 1));
-  if (bank && bank.length) clip(b, bank[Math.floor(R() * bank.length)], t, VOICE.test(name) ? 1 : (o.pitch || 1) * (.94 + R() * .12));
+  if (bank && bank.length) clip(b, bank[Math.floor(R() * bank.length)], t, VOICE.test(name) || o.from !== undefined ? 1 : (o.pitch || 1) * (.94 + R() * .12), o.from, o.len);
   else if (S[name]) S[name](b, t, o.pitch || 1, o);
 }
 function play(name, o = {}) {
@@ -164,6 +169,6 @@ async function renderWav(seconds, rate = 44100) {
   for (let i = 0; i < bytes.length; i += 3 << 20) { let s = ''; const c = bytes.subarray(i, i + (3 << 20)); for (let j = 0; j < c.length; j += 0x8000) s += String.fromCharCode.apply(null, c.subarray(j, j + 0x8000)); chunks.push(btoa(s)); }
   return chunks;
 }
-window.SFX = { play, ensure, load, renderWav, capture(on) { log = on ? [] : null; }, mute(m) { muted = m; }, get muted() { return muted; } };
+window.SFX = { play, ensure, load, loadUrl, has: name => !!BANK[name], renderWav, capture(on) { log = on ? [] : null; }, mute(m) { muted = m; }, get muted() { return muted; } };
 if (window.SOUNDS) load(window.SOUNDS);
 })();

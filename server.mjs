@@ -14,6 +14,7 @@ import { WebSocketServer } from 'ws';
 // the only files served (what the game page loads); everything else is 404. To publish another file, add its path here.
 const PAGE = new Set(['/', '/index.html', '/sfx.js', '/sounds.js', '/layers.js', '/fighters.js', '/ballroom.js', '/stages.js', '/nicknames.js', '/comic.js', '/voices.js', '/rigs.js', '/puppet.js', '/photog.js',
   '/brawl.js', '/roomshim.js', '/lobby.js', '/settings.js']);
+const VOICE_FILE = /^\/voices\/(index\.json|announcer\.mp3|[0-9]{1,2}\.mp3)$/;  // the characters' voices (make_voices on the GPU box), loaded per fighter
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +process.env.PORT || 8780, HOST = process.env.HOST || '127.0.0.1', CODE = process.env.BRAWL_CODE || '', PING = +process.env.PING_MS || 15000;
@@ -99,7 +100,7 @@ const server = http.createServer((req, res) => {
     return page ? loginPage(res, 200) : reply(res, 401, 'text/plain', 'access code needed');
   }
   if (p === '/room') return reply(res, 426, 'text/plain', 'websocket only', { Upgrade: 'websocket' });
-  if (!PAGE.has(p)) return reply(res, 404, 'text/plain', 'not found');
+  if (!PAGE.has(p) && !VOICE_FILE.test(p)) return reply(res, 404, 'text/plain', 'not found');
   const file = path.join(ROOT, p === '/' ? 'index.html' : p), ext = path.extname(file);
   fs.stat(file, (e, st) => {
     if (e || !st.isFile()) return reply(res, 404, 'text/plain', 'not found');

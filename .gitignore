@@ -15,3 +15,8 @@ photog.js
 # downloaded third-party sound packs (inputs for make_sounds.py) and review videos
 sound-packs/
 takes/
+stages.js
+scenes/
+nicknames.js
+voices-raw/
+voices.js

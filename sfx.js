@@ -8,7 +8,7 @@
 let ac = null, out = null, noise = null, muted = false, log = null;
 const R = Math.random, last = {}, BANK = {};
 const GAP = { cry: .35, puke: .3, gasp: .6, cheer: 1.2, cheerSoft: .9, ufo: 2.3, tick: .025, paper: .03, splat: .12, thud: .06, flap: .5, boing: .2, faint: .3,
-  clatter: .05, hic: .3, clop: .2, daze: 1, shutter: .3, beep: .2 };
+  clatter: .05, hic: .3, clop: .2, daze: 1, shutter: .3, beep: .2, blip: .045 };
 const GAIN = { cheer: .5, cheerSoft: .45, ufo: .45, beam: .6, paper: .22, swing: .45, swingHeavy: .5, splat: .65, clatter: .45, metal: .6, bell: .7, boom: .85, thud: .75, pop: .9 };
 const VOICE = /^(round\d|finalround|fight|winner|flawless|choose|p[12]|prepare|time|combo|youwin|youlose|arcademode|battlemode|ready|gameover)$/;
 function ensure() {
@@ -118,6 +118,7 @@ const S = {  // synthesised fallbacks and the sounds no free recording covered
       hiss(b, 'bandpass', 1900 * p, 1200 * p, t + d, .02, .35, 3, .001);
     }
   },
+  blip: (b, t, p) => { osc(b, 'triangle', 520 * p, 600 * p, t, .045, .2, .004); osc(b, 'square', 1040 * p, 1150 * p, t, .025, .04, .003); },  // cartoon gibberish, one per syllable
   beep: (b, t, p) => { for (const d of [0, .1]) osc(b, 'sine', 2700 * p, 2700 * p, t + d, .05, .12, .003); },  // camera autofocus, quiet
 };
 

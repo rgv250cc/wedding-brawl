@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #ece6dc; --ink: #2d2722; --dim: #6f655b; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1b1814; --ink: #efe6d8; --dim: #a39a8e; color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg: #1b1814; --ink: #efe6d8; --dim: #a39a8e; color-scheme: dark; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  h2 { font: 400 18px/1.2 "Bungee", Impact, sans-serif; margin: 22px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 14px; }
+  figure { margin: 0; } figcaption { color: var(--dim); margin-bottom: 4px; font-family: ui-monospace, monospace; }
+  canvas { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<p>Finisher comics (dev tool): every act and finale as a single panel, then one whole strip at a few moments.
+Query: <code>?kinds=cake,moon</code>, <code>?cols=2</code>, <code>?strip=0</code>, <code>?acts=0</code>, <code>?t=1,4.6</code>, <code>?a=69&amp;v=10</code>, <code>?lt=1.1</code>, <code>?sw=1280&amp;sh=720</code>.</p>
+<section id="acts"></section>
+<section id="strip"></section>
+<script src="layers.js"></script>
+<script src="fighters.js"></script>
+<script src="rigs.js"></script>
+<script src="puppet.js"></script>
+<script src="brawl.js"></script>
+<script src="comic.js"></script>
+<script>
+// nicknames by look, for the two default guests; anyone else is "Guest N"
+const NICK = { 69: 'Baron von Stache', 10: 'Terminatux' };
+const SAMPLE = {  // [word, attacker's shout, caption]
+  charge: ['VROOOM!', 'My mustache is aerodynamic!', '{A} smells fear. And motor oil.'],
+  uppercut: ['KA-POW!', 'Say cheese!', "{V}'s dentist just bought a yacht."],
+  kick: ['WHAM!', 'Fold like a napkin!', 'Meanwhile, at the buffet...'],
+  slap: ['SMACK!', "That's for the speech!", 'A slap heard in three countries.'],
+  cake: ['SPLORCH!', 'Let them eat YOU!', 'Nobody saves {V} a slice.'],
+  champagne: ['POP!', 'Cheers, tin can!', 'Vintage 2026. A good year for pain.'],
+  bouquet: ['FWOOMP!', "You're next!", 'Catching the bouquet was a curse.'],
+  dance: ['BOOGIE!', 'Feel the fever!', '{V} two-steps into a coma.'],
+  hug: ['CRUNCH!', 'Bring it in, buddy!', 'Ribs: 0. Love: 1.'],
+  stomp: ['STOMP!', 'Mind the shoes!', 'Gravity sides with {A}.'],
+  selfie: ['FLASH!', 'Say mustache!', '{V} sees the light. All of it.'],
+  toast: ['ZZZ...', 'And in 1997, the groom...', 'Minute 48 of the toast.'],
+  laser: ['ZZZAP!', 'Eye see you!', 'Sunglasses: OFF.'],
+  rocket: ['KA-BOOM!', 'Talk to the hand!', 'Warranty void.'],
+  doves: ['COO-COO!', 'Get him, girls!', 'Rented doves. Unpaid.'],
+  chair: ['CLANG!', 'Have a seat!', 'Table 7 is short a chair.'],
+  tie: ['WHIP!', 'Get tied up, tin man!', 'Burgundy. Silk. Deadly.'],
+  ufo: ['BZZZT!', 'Taxi!', 'The aliens RSVPed after all.'],
+  pancake: ['SPLAT!', '', '{V}: now served with syrup.'],
+  moon: ['PING!', '', '{V} left the wedding. And the planet.'],
+  confetti: ['POOF!', '', 'All that is left of {V}: nice shoes.'],
+  xray: ['CRACK!', '', 'Medical insurance: also cracked.'],
+  topper: ['SHRINK!', '', 'The cutest cake topper ever.'],
+  chandelier: ['CLINK!', '', '{V} is the light of the party now.'],
+  punchbowl: ['SPLOOSH!', '', 'Fruit punch. Heavy on the punch.'],
+  pretzel: ['TWIST!', '', '{V}, now with extra salt.'],
+  bones: ['CLATTER!', '', 'Dry bones. Open bar.'],
+  framed: ['SQUISH!', '', '{V} will hang in the hall forever.'],
+};
+const FIN = {  // sample finisher for the strip, in the spirit of the mustache
+  name: 'The Stache-tastrophe',
+  panels: [
+    { act: 'charge', word: 'VROOOM!', say: 'My mustache is aerodynamic!', cap: '{A} smells fear. And motor oil.' },
+    { act: 'tie', word: 'WHIP-WHIP!', say: 'Get tied up, tin man!', cap: 'The tie: burgundy, silk, deadly.' },
+    { act: 'cake', word: 'SPLORCH!', say: 'Let them eat YOU!', cap: 'Nobody saves {V} a slice.' },
+  ],
+  end: { act: 'pancake', word: 'SPLAT!', cap: '{V}: now served with syrup.' },
+  quip: 'I waxed my mustache for THIS?',
+};
+const q = new URLSearchParams(location.search), num = (k, d) => q.has(k) ? +q.get(k) : d;
+const AK = num('a', 69), VK = num('v', 10), LT = num('lt', 1.1);
+document.documentElement.style.setProperty('--cols', q.get('cols') || 3);
+const load = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src; });
+async function guest(k) {
+  const img = window.FIGHTERS && FIGHTERS[k] ? await load(FIGHTERS[k]) : null;
+  const rig = img && window.RIGS && RIGS[k] ? Puppet.rig(img, RIGS[k], { skirt: !LAYERS.cards[k].cy }) : null;
+  return { img, rig, name: NICK[k] || `Guest ${k + 1}`, cy: !!(LAYERS.cards[k] || {}).cy };
+}
+function canvas(parent, label, w, h) {
+  const f = document.createElement('figure'), c = document.createElement('canvas'), dpr = window.devicePixelRatio || 1;
+  f.innerHTML = `<figcaption>${label}</figcaption>`; c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.aspectRatio = `${w} / ${h}`;
+  f.appendChild(c); parent.appendChild(f); return c;
+}
+function room(g, W, H, a, v) {  // a stand-in for the frozen game underneath
+  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#3b2140'); gr.addColorStop(.45, '#6a3b3b'); gr.addColorStop(1, '#2c1a14');
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(255, 220, 150, .25)'; for (let i = 0; i < 9; i++) { g.beginPath(); g.arc(W * (i + .5) / 9, H * .12, H * .03, 0, Math.PI * 2); g.fill(); }
+  const pose = n => window.Brawl.POSE[n](1);
+  for (const [P, x, n, f] of [[a, .35, 'cheer', 1], [v, .62, 'dazed', -1]]) {
+    if (!P.rig) continue;
+    g.save(); g.translate(W * x, H * .9); g.scale(f, 1); const o = Puppet.solve(P.rig, pose(n)); Puppet.draw(g, P.rig, o, H * .4, { sink: Puppet.sink(P.rig, o) }); g.restore();
+  }
+}
+(async () => {
+  await Promise.race([Promise.all(['40px Bungee', '20px "Press Start 2P"'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 4000))]).catch(() => {});
+  await document.fonts.ready;
+  const [A, V] = await Promise.all([guest(AK), guest(VK)]), only = q.get('kinds') ? q.get('kinds').split(',') : null;
+  if (q.get('acts') !== '0') {
+    const sec = document.getElementById('acts');
+    for (const [title, list] of [['Acts', Comic.ACTS], ['Finales', Comic.ENDS]]) {
+      const kinds = list.filter(n => !only || only.includes(n)); if (!kinds.length) continue;
+      sec.insertAdjacentHTML('beforeend', `<h2>${title}</h2>`); const grid = document.createElement('div'); grid.className = 'grid'; sec.appendChild(grid);
+      for (const n of kinds) {
+        const cyborg = n === 'laser' || n === 'rocket';  // chrome-only moves: the cyborg attacks
+        const sc = cyborg && !A.cy && V.cy ? { a: V, v: A } : { a: A, v: V }, [word, say, cap] = SAMPLE[n];
+        const c = canvas(grid, `${n} · ${sc.a.name} vs ${sc.v.name}`, 640, 395), g = c.getContext('2d'), s = c.width / 640;
+        g.scale(s, s); Comic.panel(g, 640, 395, sc, { act: n, word, say, cap }, LT);
+      }
+    }
+  }
+  if (q.get('strip') !== '0') {
+    const sec = document.getElementById('strip'), times = (q.get('t') || '1,2.2,3.4,4.6,6.2').split(',').map(Number), sc = { a: A, v: V, fin: FIN };
+    sec.insertAdjacentHTML('beforeend', `<h2>Strip · ${Comic.length(FIN).toFixed(2)} s</h2><p>cues: ${Comic.cues(FIN).map(([s, n]) => `${s}s ${n}`).join(' · ')}</p>`);
+    const grid = document.createElement('div'); grid.className = 'grid'; grid.style.setProperty('--cols', q.get('scols') || 1); sec.appendChild(grid);
+    for (const t of times) {
+      const SW = num('sw', 1200), SH = num('sh', 800), c = canvas(grid, `t = ${t} s · ${SW}×${SH}`, SW, SH), g = c.getContext('2d'), s = c.width / SW;
+      g.scale(s, s); room(g, SW, SH, A, V); Comic.draw(g, SW, SH, sc, t);
+    }
+  }
+  document.title = 'Comics (ready)';
+})();
+</script>
+</body>
+</html>

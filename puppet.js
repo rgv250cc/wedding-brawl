@@ -63,7 +63,12 @@ function skeleton(kp, w, h, alpha) {
   [J0.fh, J0.bh] = snap(fh, bh, 11, 12); [J0.fk, J0.bk] = snap(fk, bk, 13, 14); [J0.fa, J0.ba] = snap(fa, ba, 15, 16);
   const neck = add(mid, mul(down, -.12 * sw));
   const crown = [mid[0], Math.min(top, neck[1] - .9 * sw)];
-  const J = { fs, bs, fe, be, fw, bw, ...J0, neck, crown, hip: mul(add(J0.fh, J0.bh), .5) };
+  const nose = seen(0), eyes = [seen(1), seen(2)].filter(Boolean), eyeMid = eyes.length ? mul(eyes.reduce(add, [0, 0]), 1 / eyes.length) : null;
+  let faceDown = nose && eyeMid && nose[1] > eyeMid[1] ? sub(nose, eyeMid) : [0, (neck[1] - crown[1]) * .18];  // eyes -> nose: "down" for this face
+  const tilt = eyes.length === 2 ? Math.max(-.44, Math.min(.44, Math.atan2(faceDown[0], faceDown[1]))) : 0;  // one eye can't tell a tilt; cap it at 25°
+  faceDown = mul([Math.sin(tilt), Math.cos(tilt)], Math.abs(faceDown[1]) / Math.cos(tilt));
+  const mouth = nose && eyeMid && nose[1] > eyeMid[1] ? add(nose, mul(faceDown, .55)) : [crown[0], crown[1] + (neck[1] - crown[1]) * .62];
+  const J = { fs, bs, fe, be, fw, bw, ...J0, neck, crown, mouth, faceUp: mul(unit(faceDown), -1), hip: mul(add(J0.fh, J0.bh), .5) };
   // hands and feet hang past the wrist and ankle; the bones used for cutting run to their tips
   J.fhand = add(fw, mul(unit(sub(fw, fe)), .32 * sw)); J.bhand = add(bw, mul(unit(sub(bw, be)), .32 * sw));
   J.ffoot = add(J.fa, mul(down, .12 * sw)); J.bfoot = add(J.ba, mul(down, .12 * sw));
@@ -96,7 +101,7 @@ function rig(img, kp, opts = {}) {
   const stub = new Set([...cyber].filter(n => look(n)[0]));  // cut off by the frame: the visible part rides on its chrome limb
   const tip = { fFA: 'fhand', bFA: 'bhand', fSh: 'ffoot', bSh: 'bfoot' };
   const cut = Object.keys(bones).filter(n => !cyber.has(n) || stub.has(n)), segs = cut.map(n => { const [a, b] = bones[n]; return [...J[a], ...J[tip[n] || b]]; });
-  const bias = cut.map(n => (BIAS[n] || 0) * sw), reach = cut.map(n => (REACH[n] || 99) * sw), N = cut.length;
+  const bias = cut.map(n => (BIAS[n] || 0) * sw), reach = cut.map(n => (REACH[n] || 99) * sw), N = cut.length, headK = cut.indexOf('head');
   const best = new Uint8Array(w * h).fill(255), second = new Uint8Array(w * h).fill(255), box = cut.map(() => [w, h, -1, -1]);
   const grow = (k, x, y) => { const b = box[k]; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; };
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {  // every opaque pixel goes to its nearest bone; seams overlap a little
@@ -106,7 +111,7 @@ function rig(img, kp, opts = {}) {
     for (let k = 0; k < N; k++) {
       const s = segs[k], raw = segDist(x, y, s[0], s[1], s[2], s[3]);
       if (raw > reach[k]) continue;
-      const d = raw - bias[k];
+      const d = raw - bias[k] - (k === headK && y < J.neck[1] && Math.abs(x - J.mouth[0]) < .3 * sw ? .12 * sw : 0);  // above the neck the head wins, so the chin (and mouth) stay on it
       if (d < d1) { k2 = k1; d2 = d1; k1 = k; d1 = d; } else if (d < d2) { k2 = k; d2 = d; }
     }
     best[i] = k1; grow(k1, x, y);
@@ -127,16 +132,29 @@ function rig(img, kp, opts = {}) {
     pg.putImageData(out, 0, 0);
     parts[name] = { canvas: pc, x: x0, y: y0 };
   });
+  let talks = false;  // South Park style talking: the face is cut along the mouth line and the top half bobs up and down
+  const hp = parts.head, cutY = J.mouth[1] - (hp ? hp.y : 0);
+  if (hp && cutY > hp.canvas.height * .3 && cutY < hp.canvas.height - 4) {
+    const up = J.faceUp, along = [-up[1], up[0]], m = sub(J.mouth, [hp.x, hp.y]);  // in head-piece pixels
+    const quad = [add(m, mul(along, .45 * sw)), add(m, mul(along, -.45 * sw))];
+    quad.push(add(quad[1], mul(up, 3 * sw)), add(quad[0], mul(up, 3 * sw)));  // only the face lifts: a fist or a camera beside it stays
+    const copy = keep => { const c = Object.assign(document.createElement('canvas'), { width: hp.canvas.width, height: hp.canvas.height }), g = c.getContext('2d');
+      g.drawImage(hp.canvas, 0, 0); g.globalCompositeOperation = keep ? 'destination-in' : 'destination-out';
+      g.beginPath(); quad.forEach(([x, y]) => g.lineTo(x, y)); g.closePath(); g.fill(); return c; };
+    parts.jaw = { canvas: copy(false), x: hp.x, y: hp.y };
+    parts.head = { canvas: copy(true), x: hp.x, y: hp.y };
+    talks = true;
+  }
   const rest = {};
   for (const n in bones) { const [a, b] = bones[n]; rest[n] = dir(J[a], J[b]); }
   const foot = Math.max(J.ffoot[1], J.bfoot[1], ...Object.values(parts).map(p => p.y + p.canvas.height));
-  return { J, sw, parts, cyber, cyTorso, rest, skirt, w, h, top: J.crown[1], foot, cx: J.hip[0], feetY: Math.max(J.ffoot[1], J.bfoot[1]) };
+  return { J, sw, parts, cyber, cyTorso, rest, skirt, talks, w, h, top: J.crown[1], foot, cx: J.hip[0], feetY: Math.max(J.ffoot[1], J.bfoot[1]) };
 }
 
 // pose: { torso, head: lean offsets (rad); limb: [absolute direction, weight] }; directions in the figure's frame:
 // 0 = forward, PI/2 = straight down, -PI/2 = straight up. Children inherit their parent's turn.
 function solve(r, pose) {
-  const o = { torso: pose.torso || 0, head: pose.head || 0, skirt: pose.skirt || 0 };
+  const o = { torso: pose.torso || 0, head: pose.head || 0, skirt: pose.skirt || 0, mouth: pose.mouth || 0 };  // mouth: 0 shut .. 1 wide open
   const rel = (n, inherited) => { const p = pose[n]; return p && r.rest[n] !== undefined ? (p[1] ?? 1) * wrap(p[0] - r.rest[n] - inherited) : 0; };
   o.fUA = rel('fUA', o.torso); o.fFA = rel('fFA', o.torso + o.fUA);
   o.bUA = rel('bUA', o.torso); o.bFA = rel('bFA', o.torso + o.bUA);
@@ -190,7 +208,14 @@ function draw(ctx, r, o, height, opts = {}) {
   for (const n of ORDER) {
     if (n === 'torso' || n === 'head') {
       ctx.save(); turn(J.hip, o.torso);
-      if (n === 'head') { turn(J.neck, o.head); piece('head'); }
+      if (n === 'head') {
+        turn(J.neck, o.head);
+        if (r.talks && r.parts.jaw) {  // the gap that opens stays see-through
+          piece('jaw');
+          const lift = (o.mouth || 0) * .09 * r.sw; ctx.translate(J.faceUp[0] * lift, J.faceUp[1] * lift);
+        }
+        piece('head');
+      }
       else {
         if (r.cyTorso) { cyborg(ctx, add(J.neck, mul(sub(J.hip, J.neck), .3)), J.hip, .66 * r.sw, ''); cyborg(ctx, J.bh, J.fh, .42 * r.sw, ''); }
         piece('torso');

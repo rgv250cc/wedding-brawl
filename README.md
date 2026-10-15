@@ -6,6 +6,15 @@ and fight in a ballroom full of guests who wander in and out, drink, ride each o
 faint, slip in puddles and get abducted by a UFO. Moshik the photographer walks around too: if his flash catches you from
 the front you're blinded for 2 seconds.
 
+Everyone has a sweet nickname based on how they look (Gabi, Stephanie and Moshik keep their real names), a couple of
+signature punchlines shown as typed subtitles with cartoon gibberish blips, and a South Park style talking head. When a
+fighter's health runs out, FINISH THEM! appears: press any attack and the winner's own finishing move plays as a
+four-panel comic that ends in K.O. Each match is in a random scene: the generated ballroom or the venue's own photos.
+
+The bystanders run on needs (thirst, hunger, bladder, fun, social, tiredness, curiosity) and the room's objects (bar, cake,
+DJ dance floor, loo, chairs, gift table, photo booth): drinks fill bladders, a busy loo sends someone to the corner, and a
+hot fight pulls a ring of watchers. `docs/crowd-ai-research.md` compares this with behaviour trees, LLM agents and Jev.
+
 Every person is a jointed paper puppet: the portrait is cut at the shoulders, elbows, hips and knees, so arms and legs move
 with each action. Limbs and bellies the photo doesn't show (hidden behind someone, or below the frame) are drawn as chrome
 cyborg parts.
@@ -61,6 +70,11 @@ everyone's joints. `python3 make_layers.py --help` lists the options.
 The photographer: `python make_photographer.py his_photo.jpg` on the GPU box cuts him out with whatever he holds and
 writes `photog.js`; then rerun `make_rigs.py fighters.js photog.js`.
 
+Scenes: `python make_stage.py venue.jpg --name garden --floor .68,.985 --tall .12,.44` on the GPU box paints out anyone in
+the photo and adds it to `stages.js` (floor = the walkable band, tall = a person's height at its back and front, as
+fractions of the picture's height). Nicknames, titles, finishers and punchlines live in `nicknames.js`.
+All of these generated files show real people or the venue, so they stay out of the repo.
+
 ## Tools
 
 - `npm run keytest`: presses every control of every layout in headless Chrome and reports what each did.
@@ -68,6 +82,7 @@ writes `photog.js`; then rerun `make_rigs.py fighters.js photog.js`.
 - `npm run relaytest` / `npm run lobbytest`: the relay server and the lobby's matchmaking on their own.
 - `npm run record`: renders a review video frame by frame (steady 30 fps, sound rendered offline from the same clock).
 - `puppets.html`: every pose on a few guests, for tuning the puppets (`?k=all`, `?poses=walk,kick`, `?cols=4`).
+- `comics.html`: every comic finisher panel, for tuning `comic.js`.
 - `probe.mjs` / `shot.mjs`: run a match headless and screenshot it / screenshot any page once its title says ready.
 - `make_sounds.py`: builds `sounds.js` from the free sound packs listed in the file (downloaded into `sound-packs/`).
 - `make_ballroom.py`: generates the ballroom backdrop.

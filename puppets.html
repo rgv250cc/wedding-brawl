@@ -24,7 +24,7 @@
 // the game's own poses (Brawl.POSE), sampled at a moment; "*_wind" is the wind-up before the blow lands
 const B = window.Brawl.POSE, T = 1.3, ITEMS = { drink: 'bottle', swing: 'bottle', aim: 'champagne' };
 const POSES = {
-  stand: B.stand(T), guard: B.guard(T), walk: B.walk(T), march: B.march(T), run: B.run(T),
+  stand: B.stand(T), talk: { ...B.stand(T), mouth: 1 }, guard: B.guard(T), walk: B.walk(T), march: B.march(T), run: B.run(T),
   punch_wind: B.punch(T, .1, .4), punch: B.punch(T, .8, .4), kick_wind: B.kick(T, .1, .4), kick: B.kick(T, .8, .4),
   swing_wind: B.swing(T, .1, .4), swing: B.swing(T, .8, .4), aim: B.aim(), throw: B.throw(), jump: B.jump(), hit: B.hit(),
   lie: B.lie(), cry: B.cry(T), slip: B.slip(T), swoon: B.swoon(), crouch: B.crouch(), tuck: B.tuck(), flail: B.flail(T), puke: B.puke(T),

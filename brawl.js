@@ -38,18 +38,45 @@ const EWW = ['EWW!', 'GROSS!', 'MY SHOES!', 'NOT AGAIN!', 'BLEUGH'];
 const NOPE = ['NO!', 'NOOO!', 'NO PHOTOS!', 'NOT MY BAD SIDE!', 'I LOOK AWFUL!'];
 const SMILE = ['SMILE!', 'SAY CHEESE!', 'LOOK HERE!', 'GORGEOUS!', 'ONE MORE!', 'FOR THE ALBUM!'];
 const DOWN = new Set(['down', 'cry', 'ko', 'slip', 'getup', 'faint', 'flip', 'beam', 'fall']);  // can't be hit or act
+// what the fighters say (subtitles + cartoon blips, no voice). {T} = the other fighter. Each guest's own 1-2 punchlines
+// come from nicknames.js (NICKNAMES[k].lines) and are used at random moments and after a combo.
+const TAUNT = ['{T}, you dance like a folding chair!', 'I\'m gonna toast you, {T}!', 'You\'re going home in a doggy bag!', 'This is MY dance floor!',
+  'I\'ve fought tougher wedding cake!', 'Say goodbye to the open bar, {T}!', 'After this you sit at the kids\' table!', 'I\'ll RSVP you to the floor!',
+  'You\'re uninvited, {T}!', 'I\'ll fold you like a napkin!', 'Your table number is ZERO!', 'The DJ is playing your exit song!'];
+const REPLY = ['Big words for a plus-one!', 'Talk is cheap. The bar is free!', 'Oh, it\'s ON!', 'You\'ll regret that, {T}!', 'I\'ll cut you like the cake!',
+  'Bring it, {T}!', 'Nobody puts me in a corner!', 'Cute. Now dance!'];
+const BEG = ['Please! I have a plus-one!', 'Not in front of the photographer!', 'Wait! You can have my cake!', 'I take it back! ALL of it!',
+  'Mercy! I still have to dance!', 'Please don\'t! I brought a gift!', 'I\'ll say you won! Promise!', 'Not the face! Not the face!',
+  'I only came for the open bar!', 'Please don\'t hurt me! I\'m on the guest list!'];
+const GLOAT = ['And THAT is how we do weddings!', 'Somebody cue my victory song!', 'Next!', 'Who wants cake?', 'Best. Wedding. Ever.'];
+const lines = k => (window.NICKNAMES && window.NICKNAMES[k] && window.NICKNAMES[k].lines) || [];
 const SHAPES = {  // item art in item units (~80 tall), grip at 0,0, pointing up; drawn with a white paper rim like the cut-outs
   fork: [['r', -3, -48, 6, 60, '#cfd5dd'], ['r', -11, -58, 22, 10, '#cfd5dd'], ['r', -11, -84, 4, 28, '#cfd5dd'],
          ['r', -4.5, -84, 4, 28, '#cfd5dd'], ['r', 2, -84, 4, 28, '#cfd5dd'], ['r', 7, -84, 4, 28, '#cfd5dd']],
   bottle: [['r', -13, -22, 26, 56, '#2f7d4f'], ['r', -5, -50, 10, 30, '#2f7d4f'], ['r', -13, -2, 26, 18, '#f1e2b3']],
   champagne: [['r', -14, -22, 28, 58, '#1d4a32'], ['r', -5, -52, 10, 32, '#1d4a32'], ['r', -7, -60, 14, 18, '#d8b445'], ['r', -14, 0, 28, 14, '#d8b445']],
   cork: [['r', -5, -6, 10, 12, '#c8a165']],
+  gift: [['r', -18, -34, 36, 34, '#e84a8a'], ['r', -4, -34, 8, 34, '#ffd23f'], ['r', -18, -22, 36, 7, '#ffd23f']],
   shoe: [['p', new Path2D('M-34 -2C-34-20-10-24 6-14L30-4C37-1 37 5 30 7L-34 7Z'), '#d0213b'], ['r', -34, 7, 7, 22, '#8c1026']],
   plate: [['e', 0, 0, 34, 12, '#fbfbfb'], ['e', 0, 0, 21, 7, '#e3e3e3']],
   raygun: [['r', -6, -4, 12, 26, '#8d1d26'], ['r', -12, -18, 40, 18, '#c62f3a'], ['r', 0, -24, 4, 30, '#c9d1d9'], ['r', 10, -24, 4, 30, '#c9d1d9'],
            ['r', 26, -14, 18, 10, '#c9d1d9'], ['e', 47, -9, 6, 6, '#7dff6a']],
 };
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// the crowd's needs (0 = fine, 1 = urgent), how fast each grows per second, and the room's objects: where they are on the
+// floor (z = 0 is the back wall), how many guests fit, and what a visit satisfies
+const NEEDS = ['thirst', 'hunger', 'bladder', 'fun', 'social', 'tired', 'nosy'];
+const GROW = { thirst: .018, hunger: .01, bladder: .007, fun: .014, social: .01, tired: .006, nosy: .016 };
+const SPOTS = [
+  { key: 'bar', x: .1, z: .1, slots: 3, ads: { thirst: 1, social: .3 }, act: 'drink' },
+  { key: 'cake', x: .885, z: .12, slots: 2, ads: { hunger: 1, fun: .2 }, act: 'eat' },
+  { key: 'dj', x: .5, z: .05, slots: 4, ads: { fun: 1, social: .5 }, act: 'dance' },
+  { key: 'loo', x: .965, z: .02, slots: 1, ads: { bladder: 1.5 }, act: 'loo' },
+  { key: 'chairs', x: .045, z: .5, slots: 2, ads: { tired: 1 }, act: 'sit' },
+  { key: 'gifts', x: .3, z: .13, slots: 2, ads: { nosy: .9 }, act: 'gift' },
+  { key: 'booth', x: .7, z: .04, slots: 2, ads: { fun: .7, social: .6 }, act: 'booth' },
+];
+const LOO = SPOTS.find(s => s.key === 'loo'), WATCH = { key: 'watch', act: 'watch', x: .5, z: .5 };
 
 // ---- keys: physical KeyboardEvent.code, so any keyboard language works. One player: WASD + J/K/L + Space.
 // Two players on one keyboard: P1 on the left (WASD, X C V, Z), P2 on the right (IJKL, , . /, M).
@@ -111,6 +138,8 @@ const POSE = {
     ...legs(D - .25 + .15 * Math.sin(t * 10), D + .2 - .15 * Math.sin(t * 10), D + .1, D + .25) }),
   rider: t => ({ torso: -.15 + .05 * Math.sin(t * 10), head: -.1, fUA: [.55], fFA: [.05], bUA: [-D - .25], bFA: [-D + .7 * Math.sin(t * 12)],
     ...legs(.25, .55, D + .15, D + .35) }),
+  sit: () => ({ torso: -.08, fUA: [D - .2], fFA: [.25], bUA: [D - .1], bFA: [.35], ...legs(.05, .15, D, D + .1) }),
+  gift: t => ({ torso: .05 + Math.sin(t * 30) * .04, head: .15, fUA: [.35 + Math.sin(t * 30) * .15], fFA: [-.3], bUA: [.45], bFA: [-.2] }),
   smile: () => ({ head: .12, fUA: [-.2], fFA: [-2.2], bUA: [D + .55], bFA: [D - 1.9] }),  // a peace sign for the album
   shield: () => ({ torso: -.15, head: .25, fUA: [D - .5], fFA: [-1.6], bUA: [D - .3], bFA: [-1.4] }),
   dazed: t => ({ torso: .1 * Math.sin(t * 4), head: .2 * Math.sin(t * 3), fUA: [D - .6], fFA: [-2.2], bUA: [D - .5], bFA: [-2],
@@ -130,8 +159,18 @@ let evSeq = 0;
 const layout = () => mode === '2p' ? LAYOUT.duo : LAYOUT.solo;
 const mySlot = () => net ? (net.role === 'host' ? 0 : 1) : 0;
 
-const feetY = z => H * (FLOOR[0] + z * (FLOOR[1] - FLOOR[0]));
-const tall = z => H * .42 * (.55 + .45 * z);  // a person's height on screen at depth z (0 = back of the floor)
+// the scenes: the generated ballroom plus the venue's own photos from stages.js (make_stage.py); each match picks one at random.
+// floor = the walkable band (back, front) and tall = a person's height there, as fractions of the picture's height
+let stage = { name: 'ballroom', floor: FLOOR, tall: [.231, .42] };
+const stages = () => [{ name: 'ballroom', img: window.BALLROOM || (window.LAYERS && window.LAYERS.bg), floor: FLOOR, tall: [.231, .42] }, ...(window.STAGES || [])];
+const backdrops = new Map();
+function useStage(st) {  // switch scene; the picture decodes in the background (the floor works before it arrives)
+  stage = st;
+  if (!backdrops.has(st.name)) { const im = new Image(); im.src = st.img; backdrops.set(st.name, im.decode().then(() => im, () => null)); }
+  backdrops.get(st.name).then(im => { if (stage === st) bg = im; });
+}
+const feetY = z => H * (stage.floor[0] + z * (stage.floor[1] - stage.floor[0]));
+const tall = z => H * (stage.tall[0] + (stage.tall[1] - stage.tall[0]) * z);  // a person's height on screen at depth z (0 = back of the floor)
 const logEv = (...a) => { if (net && net.role === 'host') evs.push([++evSeq, performance.now(), ...a]); };  // replayed by the online guest
 const snd = (name, x = .5, o = {}) => {
   logEv('s', name, q2(x), q2(o.pitch || 1), q2(o.vol ?? 1), o.dur || 0);
@@ -180,7 +219,8 @@ function person(k, img, role, x, z) {
   const name = k === 'photog' ? 'Moshik' : window.guestName ? window.guestName(k) : `Guest ${k + 1}`;
   return { id: nextId++, k, img, rig: rigFor(k, img), ang: {}, sink: 0, role, name, x, z, y: 0, vx: 0, vz: 0, vy: 0, face: x < .5 ? 1 : -1,
            hp: HP, state: 'idle', st: 0, item: null, prop: null, cd: 0, rot: 0, flash: 0, think: 0, goal: null, dest: null, task: null,
-           transit: null, run: false, cheer: 0, aimT: 0, walkPh: R() * TAU, seed: R() * 9, say: null, inp: {}, prev: {}, move: null, h: 1, X: 0, Y: 0 };
+           transit: null, run: false, cheer: 0, aimT: 0, talk: 0, quipIn: 14 + R() * 12, walkPh: R() * TAU, at: null, thinkT: R(),
+           needs: Object.fromEntries(NEEDS.map(n => [n, .15 + R() * .7])), drunk: R() * .3, brave: R(), party: R(), seed: R() * 9, say: null, inp: {}, prev: {}, move: null, h: 1, X: 0, Y: 0 };
 }
 function set(e, s) {
   if (e.state === 'drink' && s !== 'drink' && e.prop) {  // the bottle goes down with them: a new weapon on the floor
@@ -206,7 +246,45 @@ function text(t, x, y, color = '#ffd23f', size = 1) {
   fx({ k: 'text', text: t, x, y, vy: -H * .1, life: .9, max: .9, color, size });
 }
 function pop(t, e, color, size) { const [x, y] = at(e, 1.05); text(t, x, y, color, size); }
-function say(e, t) { e.say = { text: t, t: 1.8 }; }
+function say(e, t) { e.say = { text: t, t: 1.8 }; e.talk = Math.max(e.talk || 0, .5); }
+function talk(e, text, o) {  // a subtitled line: typed out at the bottom while the speaker's mouth flaps and blips
+  if (!e || !text || !S) return;
+  text = String(text).replace(/\{T\}/g, (o && o.to && o.to.name) || 'you').slice(0, 80);
+  logEv('v', e.id, text);
+  S.subs.push({ who: e, text, t: 0 });
+  if (S.subs.length > 3) S.subs.splice(1, 1);  // never fall far behind: drop the oldest waiting line
+}
+function voiceOf(e) {  // the speaker's voice clip (voices.js, by apparent gender): random per match-up, the same on both online screens
+  const V = window.VOICES, n = typeof e.k === 'number' && window.NICKNAMES && window.NICKNAMES[e.k];
+  if (!V || !n) return null;
+  const h = Math.abs(Math.sin((e.k + 1) * 91.7 + (S.pair ? S.pair[0] * 13.1 + S.pair[1] * 7.3 : 0)) * 1e4) | 0;
+  const pool = n.voice === 'm' || n.voice === 'f' ? n.voice : h % 2 ? 'm' : 'f', list = V[pool];
+  return list && list.length ? 'v' + pool + (h % list.length) : null;
+}
+function subs(dt) {  // host and guest alike: type the current line, play the speaker's voice (or blip), flap
+  const s = S.subs[0];
+  if (!s) return;
+  if (s.who.gone && s.who.left) { S.subs.shift(); return; }
+  if (s.voice === undefined) { s.voice = voiceOf(s.who); if (s.voice && window.SFX) SFX.play(s.voice, { pan: (s.who.x - .5) * 1.2, vol: .9 }); }
+  const before = Math.floor(s.t * 30); s.t += dt; const now = Math.floor(s.t * 30);
+  if (now <= s.text.length) {
+    s.who.talk = .12;
+    if (!s.voice && Math.floor(now / 2) > Math.floor(before / 2) && window.SFX) SFX.play('blip', { pan: (s.who.x - .5) * 1.2, pitch: .7 + (s.who.seed % 1) * .8 + R() * .12, vol: .7 });
+  }
+  if (s.t > s.text.length / 30 + 1.1) S.subs.shift();
+}
+function drawSubs() {
+  const s = S.subs[0];
+  if (!s) return;
+  const n = Math.min(s.text.length, Math.floor(s.t * 30)), size = H * .03, y = H * .86, p = S.players.indexOf(s.who);
+  const who = s.who.name.toUpperCase() + ': ', text = s.text.slice(0, n);
+  ctx.font = `${size}px "Bungee", Impact, sans-serif`;
+  const w1 = ctx.measureText(who).width, w2 = ctx.measureText(s.text).width, w = Math.min(W * .94, w1 + w2 + size * 1.4), x = W / 2 - w / 2;
+  ctx.fillStyle = 'rgba(10, 6, 2, .72)'; ctx.beginPath(); ctx.roundRect(x, y - size * 1.25, w, size * 1.8, size * .5); ctx.fill();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = p >= 0 ? TEAM[p] : '#ffd23f'; ctx.fillText(who, x + size * .7, y);
+  ctx.fillStyle = '#fff'; ctx.fillText(text, x + size * .7 + w1, y);
+}
 function spray(x, y, n, color, vx, vy, r, life = .8, local) {
   if (!local) logEv('y', q3(x / W), q3(y / H), n, color, q3(vx / H), q3(vy / H), q3(r / H), life);
   for (let i = 0; i < n; i++) fx({ k: 'drop', x, y, vx: vx * (.4 + R() * .8) + (R() - .5) * H * .15, vy: -vy * (.3 + R() * .9), color, r: r * (.6 + R() * .7), life, max: life });
@@ -258,8 +336,12 @@ function strike(e) {
   if (n && it && (it.type === 'plate' || (it.type === 'bottle' && ++it.hits >= 2))) breakHeld(e);
 }
 function combo(e) {  // three hits in quick succession
+  S.heat = Math.min(2, S.heat + .2);
   e.combo = S.t - (e.lastHit ?? -9) < 1.4 ? (e.combo || 0) + 1 : 1; e.lastHit = S.t;
-  if (e.role === 'fighter' && e.combo === 3) { snd('combo'); pop('COMBO!', e, '#ff6ad5', 1.3); near(e, S.guests, .35).forEach(g => g.cheer = 1.5); }
+  if (e.role === 'fighter' && e.combo === 3) {
+    snd('combo'); pop('COMBO!', e, '#ff6ad5', 1.3); near(e, S.guests, .35).forEach(g => g.cheer = 1.5);
+    const own = lines(e.k); if (own.length && R() < .6 && !S.subs.length) talk(e, pick(own), { to: S.players.find(p => p !== e) });
+  }
 }
 function breakHeld(e) {
   const it = e.item; e.item = null; S.items.splice(S.items.indexOf(it), 1);
@@ -281,10 +363,10 @@ function hurt(v, dmg, dir, word, sound) {
     if (R() < .25) puddle(v.x, v.z + .01, 'booze');  // there goes their drink
     return;
   }
-  v.hp = Math.max(0, v.hp - dmg);
+  v.hp = Math.max(0, v.hp - dmg); S.heat = Math.min(2, S.heat + .08 + dmg * .005);
   if (dmg >= 12 && R() < .4) snd('cheerSoft', v.x);
   if (v.item && R() < .3) { const it = v.item; v.item = null; Object.assign(it, { held: null, x: v.x, z: v.z, y: .5, vy: 1.5, vx: -dir * .2 }); }
-  if (!v.hp) return ko(v);
+  if (!v.hp) return finishThem(v);
   if (dmg >= 12 || R() < .12) { set(v, 'down'); snd('thud', v.x); } else set(v, 'hit');
 }
 function grab(e) {
@@ -310,6 +392,37 @@ function fireLaser(e) {
   S.shots.push({ type: 'laser', x: e.x + e.face * .05, z: e.z, y: e.y + .6, vx: e.face * 2.4, vy: 0, owner: e, spin: 0 });
   const [x, y] = at(e, .6, .4); spray(x, y, 10, '#b8ff9e', e.face * H * .4, H * .2, e.h * .01, .4);
   snd('zap', e.x);
+}
+function finishThem(v) {  // the loser staggers, begs; the winner has a few seconds to press an attack for the comic finisher
+  if (S.phase !== 'fight') return;
+  S.phase = 'finish'; S.phaseT = 0; S.victim = v; S.winner = S.players.find(p => p !== v);
+  set(v, 'dazed'); v.dazeFor = 99; v.vx = v.vz = 0;
+  S.banner = 'FINISH THEM!'; S.bannerT = 99; S.sub = 'PRESS ANY ATTACK'; S.shake = Math.max(S.shake, H * .02); S.subs.length = 0;
+  snd('boom'); snd('gasp', v.x);
+  talk(v, pick(BEG));
+}
+function finishing(dt) {
+  const w = S.winner, i = S.players.indexOf(w);
+  if (S.phase === 'finish') {
+    let go = false;
+    if (ctrl[i] === 'cpu') go = S.phaseT > 1.8;
+    else { ctrl[i] === 'net' ? netIn(w) : human(w, i); go = w.inp.punch || w.inp.kick || w.inp.grab; }
+    if (go && S.phaseT > .5) {
+      const fin = window.NICKNAMES && window.NICKNAMES[w.k] && window.NICKNAMES[w.k].fin;
+      if (!window.Comic) return finishOff();
+      S.phase = 'comic'; S.phaseT = 0; S.banner = ''; S.sub = ''; S.subs.length = 0;
+      S.comic = { a: w, v: S.victim, fin, len: Comic.length(fin), cues: Comic.cues(fin), cued: 0 };
+    } else if (S.phaseT > 5.5) finishOff();  // nobody finished it: a plain K.O.
+  } else if (S.phase === 'comic') {
+    const c = S.comic;
+    while (c.cues[c.cued] && c.cues[c.cued][0] <= S.phaseT) snd(c.cues[c.cued++][1]);
+    if (S.phaseT > c.len) finishOff(c.fin && c.fin.name);
+  }
+}
+function finishOff(move) {
+  const v = S.victim;
+  S.phase = 'fight'; ko(v); S.slowT = 0;
+  if (move) { S.sub = String(move).toUpperCase().slice(0, 30); S.finished = true; }
 }
 function ko(v) {
   if (S.phase !== 'fight') return;
@@ -434,21 +547,6 @@ function netIn(p) {  // host: the online guest's latest controls (presses are co
 // ---- the guests' own chaos
 function chaos(dt) {
   const idle = () => S.guests.filter(g => !g.gone && !g.transit && !g.task && (g.state === 'idle' || g.state === 'walk'));
-  if ((S.pukeIn -= dt) <= 0) {  // somebody had too much
-    S.pukeIn = 3.5 + R() * 4;
-    const g = pick(idle());
-    if (g) startPuke(g);
-  }
-  if ((S.faintIn -= dt) <= 0) {
-    S.faintIn = 7 + R() * 5;
-    const g = pick(idle());
-    if (g) { set(g, 'faint'); say(g, pick(['*faints*', 'TOO MUCH!', 'I NEED AIR'])); snd('faint', g.x, { pitch: voice(g) }); }
-  }
-  if ((S.flipIn -= dt) <= 0) {  // nobody asked for a backflip
-    S.flipIn = 6 + R() * 6;
-    const g = pick(idle());
-    if (g) { set(g, 'flip'); g.vy = 2.9; g.fail = R() < .35; g.spin = g.face; say(g, pick(['WATCH THIS!', 'HOLD MY DRINK', 'YOLO!'])); snd('boing', g.x); }
-  }
   if ((S.gaspIn -= dt) <= 0) {
     S.gaspIn = 1.5 + R() * 3;
     const g = pick(idle().filter(g => !g.say));
@@ -489,6 +587,8 @@ function chaos(dt) {
     } else { u.x += u.dir * .5 * dt; if (u.x < -.25 || u.x > 1.25) S.ufo = null; }
   }
 }
+function faint(g) { set(g, 'faint'); say(g, pick(['*faints*', 'TOO MUCH!', 'I NEED AIR'])); snd('faint', g.x, { pitch: voice(g) }); }
+function flip(g) { set(g, 'flip'); g.vy = 2.9; g.fail = R() < .35 + g.drunk * .3; g.spin = g.face; say(g, pick(['WATCH THIS!', 'HOLD MY DRINK', 'YOLO!'])); snd('boing', g.x); }
 function startPuke(g, delay = 0) {
   set(g, 'puke'); g.st = -delay; say(g, 'BLEUGH');
   near(g, S.guests, .16).forEach(o => !o.say && say(o, pick(EWW)));
@@ -516,15 +616,15 @@ function leave(g, run) {
 }
 function director(dt) {
   if ((S.enterIn -= dt) <= 0) { S.enterIn = 2 + R() * 3.5; if (S.guests.length < CROWD) enter(); }
+  S.heat = Math.max(0, S.heat - dt * .35);
   for (const g of S.guests) {
+    for (const n of NEEDS) g.needs[n] = Math.min(1, g.needs[n] + GROW[n] * dt);
+    g.needs.nosy = Math.min(1, g.needs.nosy + S.heat * .03 * dt); g.drunk = Math.max(0, g.drunk - .008 * dt);
     if (!g.transit && !g.task && g.state === 'idle' && (g.stay -= dt) <= 0) leave(g);
     if (g.task === 'horse' && g.state === 'idle' && (g.waitT = (g.waitT || 0) + dt) > 10) g.task = null;  // the rider never came
     if (g.task === 'pee' && g.state === 'idle' && !g.dest) { g.task = null; leave(g); }  // interrupted at the wall: off they go
-  }
-  if ((S.sceneIn -= dt) <= 0) {
-    S.sceneIn = 3.5 + R() * 3.5;
-    if (!S.deck.length) S.deck = shuffle(['drink', 'horse', 'pee', 'drink', 'horse']);
-    scene(S.deck.shift());
+    if (g.task === 'visit' && g.state === 'idle' && !g.dest) { g.task = null; g.at = null; }  // knocked over on the way
+    if (g.state === 'idle' && !g.transit && !g.task && !g.gone && (g.thinkT -= dt) <= 0) { g.thinkT = .45 + R() * .4; decide(g); }
   }
   const out = S.guests.filter(g => g.transit === 'out' && (g.x < -.1 || g.x > 1.1));
   if (out.length) {
@@ -532,18 +632,69 @@ function director(dt) {
     S.guests = S.guests.filter(g => !g.left); S.people = S.people.filter(p => !p.left);
   }
 }
-function scene(kind) {
-  const idle = shuffle(S.guests.filter(g => g.state === 'idle' && !g.transit && !g.task && !g.gone)), g = idle[0];
-  if (!g) return;
-  if (kind === 'drink') {
-    set(g, 'drink'); g.prop = pick(['bottle', 'champagne']); g.drinkFor = 4 + R() * 3;
-    say(g, pick(['CHEERS!', 'BOTTOMS UP!', 'ONE MORE!', 'OPEN BAR!']));
-  } else if (kind === 'pee') {  // off to a back corner, facing the wall
-    g.task = 'pee'; g.dest = { x: R() < .5 ? .045 : .955, z: .015 + R() * .05 };
-    say(g, pick(['BRB', 'WHERE\'S THE LOO?', 'CAN\'T WAIT']));
-  } else if (kind === 'horse' && idle[1]) {  // one bends over, the other climbs on
-    const h = idle[1]; g.task = 'mount'; g.dest = h; h.task = 'horse'; h.waitT = 0; say(g, 'GIDDY UP!');
+// ---- the crowd's minds: needs, and room objects that advertise what they satisfy (utility AI, The Sims style; see
+// docs/crowd-ai-research.md). Twice a second an idle guest scores every option and picks at random among the best three,
+// so drinks fill bladders, a full bladder and a busy loo end in the corner, and a hot fight pulls a ring of watchers.
+function decide(g) {
+  const n = g.needs, opts = [], put = (v, go) => v > .04 && opts.push([v, go]);
+  for (const s of SPOTS) {
+    const users = S.guests.filter(o => o !== g && o.at === s).length;
+    if (users >= s.slots && s.key !== 'loo') continue;
+    let v = 0; for (const k in s.ads) v += s.ads[k] * n[k] * n[k];
+    if (s.key === 'dj' || s.key === 'bar') v *= .6 + g.party;
+    put(v - .45 * Math.hypot(s.x - g.x, s.z - g.z) - .3 * users, () => visit(g, s));
   }
+  const fighters = S.phase === 'fight' ? S.players : [], close = fighters.some(p => Math.hypot(p.x - g.x, (p.z - g.z) * 1.5) < .12);
+  if (close) put((1 - g.brave) * 1.3, () => { g.task = 'visit'; g.run = true; g.dest = spot(); say(g, pick(['YIKES!', 'NOT MY SHOES!', 'EXCUSE ME!'])); });
+  if (S.heat > .2 && fighters.length) put(n.nosy * S.heat * (.4 + g.brave), () => watch(g));
+  if (g.drunk > .6) { put(g.drunk * .45, () => startPuke(g)); put(g.drunk * g.party * .4, () => flip(g)); put(g.drunk * n.tired * .35, () => faint(g)); }
+  if (g.drunk > .35 && n.fun > .5) put(n.fun * g.drunk * .45, () => horse(g));
+  if (n.bladder > .9) put(2, () => S.guests.some(o => o.state === 'loo' || (o.at === LOO && o !== g)) ? pee(g) : visit(g, LOO));
+  put(n.social * .25, () => { g.task = 'visit'; g.dest = spot(); });  // mingle
+  if (!opts.length) return;
+  const top = opts.sort((a, b) => b[0] - a[0]).slice(0, 3);
+  let r = R() * top.reduce((t, o) => t + o[0], 0);
+  for (const [v, go] of top) if ((r -= v) <= 0) return go();
+}
+function visit(g, s) {
+  const i = S.guests.filter(o => o.at === s).length;
+  g.at = s; g.task = 'visit'; g.run = false; g.dest = { x: clamp(s.x + (i % 3 - 1) * .035, .03, .97), z: clamp(s.z + .03 + Math.floor(i / 3) * .03, 0, 1) };
+}
+function watch(g) {  // join the ring around the fight, on my side of it
+  const [a, b] = S.players, mx = (a.x + b.x) / 2, side = g.x < mx ? -1 : 1;
+  g.at = WATCH; g.task = 'visit'; g.dest = { x: clamp(mx + side * (.22 + R() * .06), .05, .95), z: clamp((a.z + b.z) / 2 + (R() - .5) * .25, 0, 1) };
+}
+function pee(g) {  // the loo is taken: off to a back corner, facing the wall
+  g.task = 'pee'; g.at = null; g.dest = { x: R() < .5 ? .045 : .955, z: .015 + R() * .05 };
+  say(g, pick(['CAN\'T WAIT!', 'EMERGENCY!', 'THE LINE IS TOO LONG']));
+}
+function horse(g) {  // one bends over, the other climbs on
+  const h = S.guests.find(o => o !== g && o.state === 'idle' && !o.task && !o.transit && !o.gone && Math.hypot(o.x - g.x, o.z - g.z) < .4);
+  if (!h) return;
+  g.task = 'mount'; g.dest = h; h.task = 'horse'; h.waitT = 0; say(g, 'GIDDY UP!');
+}
+function act(g, s) {  // arrived at an object: do the thing for a while
+  const t = { drink: 3 + R() * 2, eat: 3 + R(), dance: 5 + R() * 3, loo: 3, sit: 4 + R() * 3, gift: 3, booth: 2.5, watch: 3 + R() * 2 }[s.act];
+  g.face = s === WATCH ? (Math.sign(((S.players[0].x + S.players[1].x) / 2) - g.x) || 1) : Math.sign(s.x - g.x) || g.face;
+  set(g, s.act); g.actFor = t;
+  if (s.act === 'drink') { g.prop = pick(['bottle', 'champagne']); say(g, pick(['CHEERS!', 'BOTTOMS UP!', 'ONE MORE!', 'OPEN BAR!'])); }
+  else if (s.act === 'eat') { g.prop = 'fork'; say(g, pick(['NOM NOM', 'CAKE!!', 'SO GOOD'])); }
+  else if (s.act === 'gift') { g.prop = 'gift'; say(g, pick(['WHAT IS IT?!', 'I HOPE IT\'S CASH', '*shake shake*'])); }
+  else if (s.act === 'loo') say(g, 'OCCUPIED!');
+  else if (s.act === 'booth') { const [x, y] = at(g, .9); spark(x, y, g.h * .2); snd('shutter', g.x); say(g, 'CHEESE!'); }
+}
+function done(g) {  // a visit's effects, when it ends
+  const n = g.needs, a = g.state;
+  if (a === 'drink') { n.thirst = 0; n.social *= .7; n.bladder = Math.min(1, n.bladder + .22); g.drunk = Math.min(1, g.drunk + .25); }
+  else if (a === 'eat') { n.hunger = 0; g.prop = null; }
+  else if (a === 'dance') { n.fun *= .3; n.social *= .6; n.tired = Math.min(1, n.tired + .15); }
+  else if (a === 'loo') n.bladder = 0;
+  else if (a === 'sit') n.tired *= .3;
+  else if (a === 'gift') { n.nosy *= .3; g.prop = null; }
+  else if (a === 'booth') { n.fun *= .5; n.social *= .5; }
+  else if (a === 'watch') n.nosy *= .4;
+  g.at = null; g.task = null;
+  set(g, 'idle');
 }
 function stroll(e) {  // non-fighters walk to e.dest when they have one
   if (!e.dest && e.transit === 'out') e.dest = { x: e.x < .5 ? -.14 : 1.14, z: e.z };
@@ -558,6 +709,7 @@ function stroll(e) {  // non-fighters walk to e.dest when they have one
 function arrive(e, g) {
   if (e.transit === 'in') e.transit = null;
   if (e.task === 'pee') { e.face = e.x < .5 ? -1 : 1; set(e, 'pee'); }
+  else if (e.task === 'visit') { if (e.at) act(e, e.at); else e.task = null; e.run = false; }
   else if (e.task === 'mount') {
     e.task = null;
     const h = g;
@@ -572,11 +724,17 @@ const hipAt = e => e.rig ? (e.rig.foot - e.rig.J.hip[1]) / (e.rig.foot - e.rig.t
 // ---- simulation
 function update(dt) {
   S.t += dt; S.phaseT += dt; S.bannerT -= dt;
-  if (S.phase === 'intro' && !S.called && S.phaseT > .7) {
+  if (S.phase === 'intro' && !S.taunted && S.phaseT > .3) {
+    S.taunted = true; const [a, b] = S.players;
+    talk(a, pick(TAUNT), { to: b }); talk(b, pick(REPLY), { to: a });
+  }
+  if (S.phase === 'intro' && !S.called && S.phaseT > 2.8) {
     S.called = true;
     snd(mode === 'cpu' ? (S.level === 3 ? 'finalround' : `round${S.level}`) : S.round < 6 ? `round${S.round}` : 'finalround');
   }
-  if (S.phase === 'intro' && S.phaseT > 2) { S.phase = 'fight'; S.banner = 'FIGHT!'; S.sub = ''; S.bannerT = .9; snd('fight'); }
+  if (S.phase === 'intro' && S.phaseT > 3.8) { S.phase = 'fight'; S.banner = 'FIGHT!'; S.sub = ''; S.bannerT = .9; snd('fight'); }
+  subs(dt);
+  if (S.phase === 'finish' || S.phase === 'comic') { finishing(dt); if (!S || S.phase === 'comic') return; }  // the comic freezes the room
   if (S.phase === 'fight') {
     S.clock -= dt;
     if (S.clock <= 0) {
@@ -587,7 +745,8 @@ function update(dt) {
   if (S.phase === 'ko') {
     const w = S.winner, wi = S.players.indexOf(w);
     if (S.phaseT > 1.4 && !S.crowned && (!w || !DOWN.has(w.state) || S.phaseT > 4)) {
-      S.crowned = true; S.bannerT = 9; S.sub = '';
+      S.crowned = true; S.bannerT = 9; if (!S.finished) S.sub = '';
+      if (w && !S.finished) talk(w, pick(lines(w.k).concat(GLOAT)), { to: S.players.find(p => p !== w) });
       if (!w) { S.banner = 'DRAW'; snd('gasp'); }  // same fighters again
       else if (mode === 'cpu') {
         set(w, 'win'); snd('cheer', w.x); S.guests.forEach(g => g.cheer = 3);
@@ -677,6 +836,11 @@ function person_(e, dt) {
   e.st += dt; e.cd -= dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt;
   if (e.say && (e.say.t -= dt) <= 0) e.say = null;
   const free = e.state === 'idle' || e.state === 'walk', pinned = !!e.remote && free && S.phase === 'fight';
+  e.talk -= dt;
+  if (e.role === 'fighter' && free && S.phase === 'fight' && (e.quipIn -= dt) <= 0) {
+    e.quipIn = 16 + R() * 14;
+    const own = lines(e.k); if (own.length && !S.subs.length) talk(e, pick(own), { to: S.players.find(p => p !== e) });
+  }
   if (e.role === 'fighter') {
     const n = e.inp;
     if (pinned) {  // the online guest moves its own fighter; the host takes its word for where it is while it's free
@@ -732,11 +896,12 @@ function person_(e, dt) {
       }
       break;
     case 'drink':
-      if (R() < dt * .7) { pop('HIC!', e, '#ffe9a8', .6); snd('hic', e.x, { pitch: voice(e) }); }
-      if (e.st > e.drinkFor) {
-        set(e, 'idle');
-        if (R() < .4) startPuke(e, .6); else say(e, pick(['ANOTHER ONE!', 'I LOVE YOU GUYS', 'WHO MOVED THE FLOOR?']));
-      }
+      if (R() < dt * (.3 + e.drunk)) { pop('HIC!', e, '#ffe9a8', .6); snd('hic', e.x, { pitch: voice(e) }); }
+      if (e.st > (e.actFor || 4)) { done(e); if (e.drunk > .5) say(e, pick(['ANOTHER ONE!', 'I LOVE YOU GUYS', 'WHO MOVED THE FLOOR?'])); }
+      break;
+    case 'eat': case 'dance': case 'sit': case 'gift': case 'booth': case 'watch': case 'loo':
+      if (e.state === 'watch' && S.heat > .9 && !e.say && R() < dt * .4) say(e, pick(GASPS));
+      if (e.st > (e.actFor || 3) || (e.state === 'watch' && S.phase !== 'fight')) done(e);
       break;
     case 'pee':  // discreet: facing the wall in a back corner; all anyone sees is the puddle
       if (!e.done && e.st > .5) {
@@ -806,6 +971,12 @@ function poseFor(e) {
     case 'horse': return POSE.horse(t);
     case 'rider': return POSE.rider(t);
     case 'pee': return POSE.pee();
+    case 'eat': return POSE.drink(st);
+    case 'dance': return POSE.dance(t);
+    case 'sit': return POSE.sit();
+    case 'gift': return POSE.gift(t);
+    case 'booth': return POSE.smile();
+    case 'watch': return S.heat > .6 || e.cheer > 0 ? POSE.cheer(t) : POSE.stand(t);
     case 'smile': return POSE.smile();
     case 'shield': return POSE.shield();
     case 'aim': return POSE.camAim();
@@ -822,8 +993,10 @@ function poseFor(e) {
 }
 function animate(e, dt) {
   if (!e.rig) return;
-  const tgt = Puppet.solve(e.rig, poseFor(e)), k = Math.min(1, dt * (e.state === 'attack' ? 30 : DOWN.has(e.state) ? 9 : 15));
+  const pose = poseFor(e); pose.mouth = e.talk > 0 ? Math.max(0, Math.sin(S.t * 30 + e.seed * 3)) : 0;
+  const tgt = Puppet.solve(e.rig, pose), k = Math.min(1, dt * (e.state === 'attack' ? 30 : DOWN.has(e.state) ? 9 : 15));
   for (const n in tgt) e.ang[n] = (e.ang[n] || 0) + (tgt[n] - (e.ang[n] || 0)) * k;
+  e.ang.mouth = tgt.mouth;
   const upright = !['down', 'cry', 'ko', 'slip', 'faint', 'flip', 'beam', 'fall', 'rider'].includes(e.state) && e.y < .02;
   e.sink += ((upright ? Puppet.sink(e.rig, e.ang) : 0) - e.sink) * k;  // bent knees lower the body instead of lifting the feet
 }
@@ -881,6 +1054,45 @@ function drawPerson(e) {
     const [x, y] = at(e, e.state === 'dazed' ? 1.02 : .95);
     for (let i = 0; i < 3; i++) { const q = S.t * 4 + i * TAU / 3; star(x + Math.cos(q) * h * .08, y - h * .06 + Math.sin(q) * h * .025, h * .022, '#ffe14d'); }
   }
+}
+function drawSpot(s) {  // the room's objects, as paper cut-outs with a white rim like everyone else
+  const h = tall(s.z), u = h / 100;
+  ctx.save(); ctx.translate(s.x * W, feetY(s.z)); ctx.lineJoin = 'round'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.2 * u;
+  const box = (x, y, w, hh, fill, r = 2) => { ctx.beginPath(); ctx.roundRect(x * u, y * u, w * u, hh * u, r * u); ctx.fillStyle = fill; ctx.fill(); ctx.stroke(); };
+  const sign = (t, y, fill = '#ffd23f') => label(t, 0, y * u, 7 * u, 'center', fill, 'pixel');
+  switch (s.key) {
+    case 'bar':
+      box(-46, -40, 92, 40, '#7a4a22'); box(-50, -45, 100, 7, '#a8703a');
+      ['#2f7d4f', '#1d4a32', '#8d1d26', '#d8b445', '#2f7d4f'].forEach((c, i) => { box(-38 + i * 17, -63, 7, 18, c, 3); box(-36 + i * 17, -70, 3, 8, c, 1); });
+      sign('BAR', -76); break;
+    case 'cake':
+      box(-30, -28, 60, 28, '#f4f1ea'); box(-17, -50, 34, 22, '#fffaf2', 4); box(-12, -66, 24, 16, '#fffaf2', 4); box(-7, -78, 14, 12, '#fffaf2', 3);
+      ctx.lineWidth = 1.2 * u; ['#f4a6c0', '#f4a6c0', '#f4a6c0'].forEach((c, i) => box(-17 + i * 5, -50 + i * 16 - (i ? 6 : 0), 34 - i * 10, 3, c, 1));
+      sign('CAKE', -86, '#ff9ec0'); break;
+    case 'dj':
+      ctx.save(); ctx.scale(1, .28); ['#ff4d6d', '#ffd23f', '#4dd2ff', '#7dff6a'].forEach((c, i) => {
+        ctx.globalAlpha = .35 + .25 * (Math.floor(S.t * 4 + i) % 2); ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(0, 0, (90 - i * 18) * u, (90 - i * 18) * u, 0, 0, TAU); ctx.fill(); });
+      ctx.restore(); ctx.globalAlpha = 1;
+      box(-26, -34, 52, 34, '#1b1b22'); box(-58, -62, 18, 62, '#2a2a33'); box(40, -62, 18, 62, '#2a2a33');
+      for (const sx of [-49, 49]) { ctx.fillStyle = '#555'; ctx.beginPath(); ctx.arc(sx * u, -42 * u, 6 * u, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(sx * u, -20 * u, 7 * u, 0, TAU); ctx.fill(); }
+      sign('DJ', -40, '#ff6ad5'); break;
+    case 'loo': {
+      const busy = S.people.some(p => p.state === 'loo');
+      box(-17, -78, 34, 78, '#8c6d4f', 3); ctx.fillStyle = '#e0c48a'; ctx.beginPath(); ctx.arc(11 * u, -38 * u, 2.2 * u, 0, TAU); ctx.fill();
+      sign(busy ? 'BUSY' : 'WC', -84, busy ? '#ff4d3a' : '#7dff6a'); break;
+    }
+    case 'chairs':
+      for (const cx of [-14, 14]) { ctx.strokeStyle = '#fff'; box(cx - 10, -24, 20, 4, '#d8b445', 1); box(cx - 10, -50, 3, 50, '#d8b445', 1); box(cx + 7, -24, 3, 24, '#d8b445', 1); box(cx - 10, -50, 20, 3, '#d8b445', 1); }
+      break;
+    case 'gifts':
+      box(-30, -26, 60, 26, '#f4f1ea'); box(-25, -44, 16, 18, '#e84a8a'); box(-5, -50, 18, 24, '#3aa0ff'); box(16, -40, 12, 14, '#ffd23f');
+      sign('GIFTS', -58, '#ffd23f'); break;
+    case 'booth':
+      box(-27, -96, 54, 96, '#b3122e', 3); ctx.strokeStyle = 'rgba(0, 0, 0, .25)'; ctx.lineWidth = u;
+      for (let i = -20; i <= 20; i += 8) { ctx.beginPath(); ctx.moveTo(i * u, -88 * u); ctx.lineTo(i * u, -4 * u); ctx.stroke(); }
+      sign('PHOTO', -102, '#fff'); break;
+  }
+  ctx.restore();
 }
 function drawLoose(it) {
   const h = tall(it.z);
@@ -1039,8 +1251,8 @@ function draw() {
   if (bg) { const s = Math.max(W / bg.width, H / bg.height); ctx.drawImage(bg, (W - bg.width * s) / 2, (H - bg.height * s) / 2, bg.width * s, bg.height * s); }
   S.puddles.forEach(drawPuddle);
   if (S.ufo) drawBeam(S.ufo);
-  const order = [...S.people.filter(o => !o.gone).map(o => [o.z, 0, o]), ...S.items.filter(i => !i.held).map(o => [o.z - .001, 1, o]), ...S.shots.map(o => [o.z + .002, 2, o])];
-  for (const [, k, o] of order.sort((a, b) => a[0] - b[0])) (k === 0 ? drawPerson : k === 1 ? drawLoose : drawShot)(o);
+  const order = [...SPOTS.map(o => [o.z - .004, 3, o]), ...S.people.filter(o => !o.gone && o.state !== 'loo').map(o => [o.z, 0, o]), ...S.items.filter(i => !i.held).map(o => [o.z - .001, 1, o]), ...S.shots.map(o => [o.z + .002, 2, o])];
+  for (const [, k, o] of order.sort((a, b) => a[0] - b[0])) (k === 0 ? drawPerson : k === 1 ? drawLoose : k === 2 ? drawShot : drawSpot)(o);
   if (S.disco > 0) drawDisco();
   S.doves.forEach(drawDove);
   if (S.ufo) drawUfo(S.ufo);
@@ -1049,6 +1261,12 @@ function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const white = net ? S.white[mySlot()] : Math.max(...S.white.map((w, i) => ctrl[i] === 'cpu' ? 0 : w));  // the blinded human sees white
   if (white > 0 && !reduce) { ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(.85, white)})`; ctx.fillRect(0, 0, W, H); }
+  if (S.phase === 'comic' && S.comic && window.Comic) {
+    const c = S.comic, as = p => ({ rig: p.rig, img: p.img, name: p.name });
+    try { Comic.draw(ctx, W, H, { a: as(c.a), v: as(c.v), fin: c.fin }, S.phaseT); } catch (err) { console.warn(err); }
+    return;
+  }
+  drawSubs();
   hud();
 }
 
@@ -1062,7 +1280,7 @@ function freshState(extra) {
   return Object.assign({ t: 0, phase: 'intro', phaseT: 0, round: S ? S.round + 1 : 1, level: 1, clock: ROUND_SECONDS, banner: '', sub: '', bannerT: 0,
     shake: 0, slowT: 0, players: [], guests: [], photog: null, people: [], cast: [], items: [], shots: [], puddles: [], fx: [], doves: [], winner: null,
     white: [0, 0], confetti: 0, pukeIn: 3, gaspIn: 1, faintIn: 6, flipIn: 5, dovesIn: 3, discoIn: 16, disco: 0, ufoIn: 6, ufo: null, ufos: 0,
-    enterIn: 2, sceneIn: 2.5, deck: [] }, extra);
+    enterIn: 2, heat: 0, subs: [], comic: null }, extra);
 }
 async function newMatch(pair, level = 1, round = 0) {
   const run = startSeq, L = window.LAYERS, n = L.cards.length;
@@ -1078,9 +1296,12 @@ async function newMatch(pair, level = 1, round = 0) {
     const at = spot(guests), g = person(c.k, c.img, 'guest', at.x, at.z);
     g.face = R() < .5 ? 1 : -1; g.stay = 5 + R() * 15; g.wander = R() < .3; guests.push(g);
   }
+  const all = stages(), others = all.filter(s => s.name !== (S && S.stage) && s.img), st = pick(others.length ? others : all);
+  useStage(st); await backdrops.get(st.name);
+  if (run !== startSeq) return;
   const ph = photogImg ? person('photog', photogImg, 'photog', R() < .5 ? -.08 : 1.08, .25 + R() * .45) : null;
   if (ph) { ph.transit = 'in'; ph.dest = { x: ph.x < 0 ? .12 : .88, z: ph.z }; ph.think = 3; }
-  S = freshState({ level, pair, players, guests, photog: ph, people: [...players, ...guests, ...(ph ? [ph] : [])], cast, ...(round ? { round } : {}) });
+  S = freshState({ stage: st.name, level, pair, players, guests, photog: ph, people: [...players, ...guests, ...(ph ? [ph] : [])], cast, ...(round ? { round } : {}) });
   snd('bell');
 }
 function next() {
@@ -1103,15 +1324,15 @@ function rival() {  // the next rung of the ladder: an android nobody has beaten
 // ---- online. The host packs everything the guest draws into its match-room presence (~30 times a second, < 4 KB); the
 // guest unpacks it, eases toward it, replays the sounds and effects, and moves its own fighter itself while it's free.
 const STATES = ['idle', 'walk', 'attack', 'hit', 'down', 'cry', 'getup', 'slip', 'ko', 'faint', 'flip', 'beam', 'fall', 'puke', 'win', 'dazed',
-                'drink', 'horse', 'rider', 'pee', 'smile', 'shield', 'aim', 'shoot'];
-const THINGS = ['fork', 'bottle', 'champagne', 'shoe', 'plate', 'raygun', 'cork', 'laser'], MOVE_KEYS = Object.keys(MOVES);
-const ROLES = ['fighter', 'guest', 'photog'], WET = ['booze', 'puke', 'pee'], PHASES = ['intro', 'fight', 'ko'], UFO = ['in', 'beam', 'out'];
+                'drink', 'horse', 'rider', 'pee', 'smile', 'shield', 'aim', 'shoot', 'eat', 'dance', 'sit', 'gift', 'booth', 'watch', 'loo'];
+const THINGS = ['fork', 'bottle', 'champagne', 'shoe', 'plate', 'raygun', 'cork', 'laser', 'gift'], MOVE_KEYS = Object.keys(MOVES);
+const ROLES = ['fighter', 'guest', 'photog'], WET = ['booze', 'puke', 'pee'], PHASES = ['intro', 'fight', 'ko', 'finish', 'comic'], UFO = ['in', 'beam', 'out'];
 const bytes = s => new TextEncoder().encode(s).length;
 function pack() {
   const now = performance.now();
   while (evs.length && now - evs[0][1] > 700) evs.shift();
   const d = {
-    v: 1, ph: PHASES.indexOf(S.phase), pt: q2(S.phaseT), cl: q2(S.clock), rd: S.round, w: match.wins, bn: S.banner, bt: q2(S.bannerT), sb: S.sub,
+    v: 1, sg: S.stage, ph: PHASES.indexOf(S.phase), pt: q2(S.phaseT), cl: q2(S.clock), rd: S.round, w: match.wins, bn: S.banner, bt: q2(S.bannerT), sb: S.sub,
     dc: q2(S.disco), wh: q2(S.white[1]), cf: S.confetti > 0 ? 1 : 0, ack: net.ack || 0,
     P: S.people.filter(e => !e.gone).map(e => [e.id, e.k === 'photog' ? -1 : e.k, ROLES.indexOf(e.role), q3(e.x), q3(e.z), q2(e.y), e.face,
       STATES.indexOf(e.state), q2(e.st), Math.round(e.hp), q2(e.rot), e.item ? THINGS.indexOf(e.item.type) : e.prop ? 20 + THINGS.indexOf(e.prop) : -1,
@@ -1126,6 +1347,7 @@ function pack() {
     E: evs.map(e => [e[0], ...e.slice(2)]),
   };
   if (S.ending) d.end = S.ending;
+  if (S.phase === 'comic' && S.comic) d.cm = [S.comic.a.id, S.comic.v.id];
   let s = JSON.stringify(d);
   for (const k of ['E', 'U', 'V', 'I']) while (bytes(s) > 3700 && d[k].length) { d[k].shift(); s = JSON.stringify(d); }  // stay inside one presence update
   return d;
@@ -1133,6 +1355,7 @@ function pack() {
 function unpack(d) {
   if (!d || d.v !== 1 || !Array.isArray(d.P)) return;
   const was = S.phase;
+  if (typeof d.sg === 'string' && d.sg !== stage.name) { const st = stages().find(s => s.name === d.sg); if (st) useStage(st); }
   S.phase = PHASES[d.ph] || 'fight'; S.phaseT = +d.pt || 0; S.clock = +d.cl || 0; S.round = d.rd; match.wins = Array.isArray(d.w) ? d.w : [0, 0];
   S.banner = String(d.bn || ''); S.bannerT = +d.bt || 0; S.sub = String(d.sb || ''); S.disco = +d.dc || 0; S.white[1] = Math.max(S.white[1], +d.wh || 0);
   if (d.cf && !S.confetti) S.confetti = 5;
@@ -1170,6 +1393,10 @@ function unpack(d) {
   S.ufo = d.O ? { x: d.O[0], y: d.O[1], state: UFO[d.O[2]], target: S.byId.get(d.O[3]) || null } : null;
   S.doves = (Array.isArray(d.V) ? d.V.slice(0, 20) : []).map(([x, y, dir, ph, sp]) => ({ x, y, dir, ph, sp }));
   for (const ev of (Array.isArray(d.E) ? d.E : []).slice(-60)) if (Array.isArray(ev) && ev[0] > S.evSeen) { S.evSeen = ev[0]; replay(ev); }
+  if (S.phase === 'comic' && Array.isArray(d.cm) && (!S.comic || S.comic.a.id !== d.cm[0])) {
+    const a = S.byId.get(d.cm[0]), v = S.byId.get(d.cm[1]);
+    if (a && v) S.comic = { a, v, fin: window.NICKNAMES && window.NICKNAMES[a.k] && window.NICKNAMES[a.k].fin };
+  } else if (S.phase !== 'comic') S.comic = null;
   if (Array.isArray(d.end)) finish(d.end[0], d.end[1]);
 }
 async function spawn(a) {  // a person the host has and we don't yet: load their cut-out first
@@ -1197,6 +1424,7 @@ function replay(ev) {
   else if (kind === 'y') spray(n(a[0], -1, 2, 0) * W, n(a[1], -1, 2, 0) * H, n(a[2], 0, 30, 0), String(a[3]), n(a[4], -3, 3, 0) * H, n(a[5], -3, 3, 0) * H, n(a[6], 0, .05, .01) * H, n(a[7], 0, 2, .8), true);
   else if (kind === 'k') fx({ k: 'spark', x: a[0] * W, y: a[1] * H, r: a[2] * H, life: .22, max: .22 });
   else if (kind === 'w') fx({ k: 'swoosh', x: a[0] * W, y: a[1] * H, face: a[2], r: a[3] * H, life: .12, max: .12 });
+  else if (kind === 'v') { const e = S.byId.get(a[0]); if (e) talk(e, String(a[1])); }
   else if (kind === 'f') fx({ k: 'flash', x: a[0] * W, y: a[1] * H, face: a[2], r: a[3] * H, life: .35, max: .35 });
 }
 function replica(dt) {  // the online guest's frame: no game logic, just easing toward the host's picture and moving my own fighter
@@ -1205,8 +1433,9 @@ function replica(dt) {  // the online guest's frame: no game logic, just easing 
   const me = S.players[1], b = readControls(1), k = Math.min(1, dt * 14);
   for (const key of ['punch', 'kick', 'grab', 'jump']) { if (b[key] && !S.held[key]) S.presses[key]++; S.held[key] = b[key]; }
   tapped.clear();
+  subs(dt);
   for (const e of S.people) {
-    e.st += dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt;
+    e.st += dt; e.flash -= dt; e.aimT -= dt; e.cheer -= dt; e.talk -= dt;
     if (e.say && (e.say.t -= dt) <= 0) e.say = null;
     if (e === me && e.hostFree && S.phase === 'fight') {
       e.vx = b.mx * .3; e.vz = b.mz * .18;
@@ -1281,9 +1510,8 @@ async function start(pair, opts = {}) {
   const help = root.querySelector('.brawl-bar span');
   if (help) help.textContent = `${mode === '2p' ? HELP.duo : HELP.solo}${mode === 'demo' ? ' · press any of them to take over P1' : ''} · Controllers: press any button to join · ${CREDITS}`;
   S = null;
-  const im = new Image(); im.src = window.BALLROOM || window.LAYERS.bg;  // fall back to the venue's own empty courtyard
   const ph = new Image(); if (window.PHOTOG) ph.src = window.PHOTOG;
-  [bg, photogImg] = await Promise.all([im.decode().then(() => im, () => null), window.PHOTOG ? ph.decode().then(() => ph, () => null) : null]);
+  photogImg = window.PHOTOG ? await ph.decode().then(() => ph, () => null) : null;
   await Promise.race([Promise.all(['40px Bungee', '20px "Press Start 2P"'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 1500))]).catch(() => {});
   if (!live()) return;  // stopped (Esc, Leave, another start) while loading
   if (net && net.role === 'guest') {

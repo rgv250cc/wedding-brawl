@@ -119,12 +119,16 @@
 </nav>
 <script src="sfx.js"></script>
 <script src="sounds.js" async></script>
+<script src="voices.js" async></script>
 <script src="layers.js"></script>
+<script src="nicknames.js"></script>
 <script src="fighters.js" async></script>
 <script src="ballroom.js" async></script>
+<script src="stages.js" async></script>
 <script src="rigs.js"></script>
 <script src="puppet.js"></script>
 <script src="photog.js" async></script>
+<script src="comic.js" async></script>
 <script src="brawl.js" async></script>
 <script src="roomshim.js" async></script>
 <script src="lobby.js" async></script>
@@ -190,8 +194,8 @@ const CARD_FS = `uniform sampler2D map; uniform vec2 texel; uniform float paper;
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(mix(c.rgb, mix(vec3(0.97, 0.955, 0.93), c.rgb, c.a), paper), alpha);
   }`;
-const SHADOW_FS = `uniform sampler2D map; uniform float opacity; varying vec2 vUv;
-  void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, texture2D(map, vUv, 2.0).a * opacity); }`;  // mip bias = cheap blur
+const SHADOW_FS = `uniform sampler2D map; uniform float opacity; uniform vec3 tint; varying vec2 vUv;
+  void main() { gl_FragColor = vec4(tint, texture2D(map, vUv, 2.0).a * opacity); }`;  // mip bias = cheap blur; tint marks player 1's pick
 const mat = (fs, uniforms) => new THREE.ShaderMaterial({ uniforms, vertexShader: VS, fragmentShader: fs, transparent: true, depthTest: false, depthWrite: false });
 
 const [bg, bgDepth, fg, fgDepth, ...imgs] = await Promise.all([L.bg, L.bgDepth, L.fg, L.fgDepth, ...L.cards.map(c => c.img)].map(load));
@@ -201,7 +205,7 @@ scene.add(relief(bg, pixels(bgDepth), false));
 const flaps = L.cards.map((c, k) => {
   const t = tex(imgs[k]), w = c.w * 2 / L.H, h = c.h * 2 / L.H;
   const geo = new THREE.PlaneGeometry(w, h).translate(0, h / 2, 0);
-  const shadow = new THREE.Mesh(geo, mat(SHADOW_FS, { map: { value: t }, opacity: { value: 0.35 } }));
+  const shadow = new THREE.Mesh(geo, mat(SHADOW_FS, { map: { value: t }, opacity: { value: 0.35 }, tint: { value: new THREE.Color(0, 0, 0) } }));
   const card = new THREE.Mesh(geo, mat(CARD_FS, { map: { value: t }, texel: { value: new THREE.Vector2(1 / c.w, 1 / c.h) }, paper: { value: 1 } }));
   shadow.renderOrder = 2 * k + 1; card.renderOrder = 2 * k + 2; card.userData.k = k;
   const flap = new THREE.Group().add(shadow, card);
@@ -232,10 +236,11 @@ const hedge = relief(fg, pixels(fgDepth), true);
 hedge.renderOrder = 1e4;
 scene.add(hedge);
 
+let pan = 0, ptrX = .5;  // pan: how far the view window has slid along the photo (world units, negative = toward its left side)
 function view(dx, dy) {  // off-axis frustum: the picture plane stays pinned to the frame, like looking through a window
   camera.position.set(dx, dy, D);
   const k = camera.near / D, hw = A / OVERSCAN, hh = 1 / OVERSCAN;
-  camera.projectionMatrix.makePerspective((-hw - dx) * k, (hw - dx) * k, (hh - dy) * k, (-hh - dy) * k, camera.near, camera.far);
+  camera.projectionMatrix.makePerspective((pan - hw - dx) * k, (pan + hw - dx) * k, (hh - dy) * k, (-hh - dy) * k, camera.near, camera.far);
   camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 }
 
@@ -247,6 +252,7 @@ if (touch) hint.textContent = (framed ? 'Drag' : 'Tilt or drag') + ' to look aro
 function aim(x, y) { target.set(clamp(x), clamp(y)); last = performance.now(); hint.style.opacity = 0; }
 addEventListener('pointermove', e => {
   const r = canvas.getBoundingClientRect();
+  ptrX = (e.clientX - r.left) / r.width;
   aim((e.clientX - r.left) / r.width * 2 - 1, 1 - (e.clientY - r.top) / r.height * 2);
 });
 let base = null;
@@ -297,7 +303,8 @@ let names = {};
 try { names = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
 function show(el, k) {
   const pool = (L.cards[k].cy && BODY_TITLES[L.bodies]) || TITLES;
-  const [name, title] = NAMED[k] || [`Guest ${k + 1}`, pool[Math.floor(hash(k, 0) * pool.length)]];
+  const nick = window.NICKNAMES && window.NICKNAMES[k];  // nicknames.js: a sweet name and title for everyone we don't know
+  const [name, title] = NAMED[k] || (nick ? [nick.name, nick.title] : [`Guest ${k + 1}`, pool[Math.floor(hash(k, 0) * pool.length)]]);
   // big portrait from fighters.js (data: images load in every viewer); the small cut-out until that file arrives
   el.querySelector('img').src = (window.FIGHTERS && window.FIGHTERS[k]) || L.cards[k].img;
   el.querySelector('.name').textContent = names[k] || name;
@@ -315,7 +322,8 @@ function closeFight() {
 }
 canvas.addEventListener('click', () => {
   const k = hovered ? hovered.userData.k : -1;
-  if (k < 0 || picked.length === 2 || k === picked[0]) return closeFight();
+  if (k >= 0 && k === picked[0] && picked.length === 1) { window.SFX && SFX.play('clonk', { vol: .5 }); return; }  // already player 1
+  if (k < 0 || picked.length === 2) return closeFight();
   if (picked.length === 1 && !fight.dataset.mode) fight.dataset.mode = 'cpu';  // picked a rival without choosing: they're the CPU
   picked.push(k);
   show(picked.length === 1 ? p1 : p2, k);
@@ -328,7 +336,7 @@ addEventListener('keydown', e => {
   if (e.key === 'Escape') closeFight();
   if (e.key === 'Enter' && e.target.classList.contains('name')) { e.preventDefault(); e.target.blur(); }
 });
-window.guestName = k => names[k] || (NAMED[k] || [`Guest ${k + 1}`])[0];  // the brawl uses the same names
+window.guestName = k => names[k] || (NAMED[k] || [])[0] || (window.NICKNAMES && window.NICKNAMES[k] && window.NICKNAMES[k].name) || `Guest ${k + 1}`;  // the brawl uses the same names
 document.getElementById('mode').onclick = e => {  // after the first pick: who plays player 2
   const b = e.target.closest('button');
   if (!b) return;
@@ -354,7 +362,15 @@ fight.addEventListener('input', e => {  // typed names are remembered in this br
 new ResizeObserver(() => renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)).observe(canvas);
 let chose = false;
 const backOut = x => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
+let lastNow = 0;
 renderer.setAnimationLoop(now => {
+  const dt = Math.min(.05, (now - lastNow) / 1000 || 0); lastNow = now;
+  // picking player 2 while player 1's panel covers the left half: point near either edge of the open part to slide the photo
+  const choosing = picked.length === 1 && fight.classList.contains('on'), far = -A + .08 * A / OVERSCAN;
+  if (choosing && ptrX > .5) pan = Math.max(far, Math.min(0, pan + (ptrX < .62 ? -(.62 - ptrX) / .12 : ptrX > .9 ? (ptrX - .9) / .1 : 0) * 1.8 * dt));
+  else if (!choosing) pan *= Math.pow(.02, dt);
+  flaps.forEach((f, k) => { const u = f.children[0].material.uniforms, mine = choosing && k === picked[0];
+    u.tint.value.setRGB(mine ? 1 : 0, mine ? .3 : 0, mine ? .23 : 0); u.opacity.value = mine ? .95 : .35; });
   if (window.brawling) return;  // the ballroom has the stage
   if (!reduce && now - last > 2500) { const s = now / 1000; target.set(Math.sin(s * 0.55) * 0.75, Math.sin(s * 0.37) * 0.35); }
   cur.lerp(target, 0.06);

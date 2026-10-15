@@ -13,6 +13,7 @@ for f in $files; do
 done
 if [ -f voices/index.json ]; then  # the characters' voices: just the sprites and their index
   mkdir deploy/public/voices && cp voices/index.json voices/announcer.mp3 deploy/public/voices/ && cp voices/[0-9]*.mp3 deploy/public/voices/
+  [ -f voices/photog.mp3 ] && cp voices/photog.mp3 deploy/public/voices/ || true
 fi
 printf '/*\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Robots-Tag: noindex\n' > deploy/public/_headers
 echo "deploy/public: $(ls deploy/public | wc -l | tr -d ' ') files, $(du -sh deploy/public | cut -f1)"

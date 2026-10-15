@@ -2183,6 +2183,7 @@ async function newMatch(pair, level = 1, round = 0) {
   pair = pair && pair.length === 2 ? pair : shuffle(androids.length >= 2 ? androids : [...Array(n).keys()]).slice(0, 2);
   const [a, b] = await Promise.all(pair.map(art)), cast = (await castPool()).filter(c => !pair.includes(c.k));
   await Promise.race([Promise.all(pair.map(voiceUp)), new Promise(r => setTimeout(r, 1500))]);  // their voices, if they come quickly
+  voiceUp('photog');  // Moshik's, for his gripes at the end
   if (run !== startSeq) return;  // the game was stopped while the cut-outs loaded
   const players = [person(pair[0], a, 'fighter', .3, .55), person(pair[1], b, 'fighter', .7, .55)];
   players.forEach((p, i) => { p.lv = LEVELS[mode === 'cpu' && i === 1 ? level - 1 : 1]; p.sp = match.sp[i] || 0; });
@@ -2331,7 +2332,7 @@ async function spawn(a) {  // a person the host has and we don't yet: load their
   S.pending.delete(id);
   const e = person(k === -1 ? 'photog' : k, img, ROLES[role] || 'guest', a[3], a[4]);
   e.id = id; e.tx = a[3]; e.tz = a[4]; e.ty = a[5]; e.face = a[6] < 0 ? -1 : 1; e.state = STATES[a[7]] || 'idle'; e.st = a[8];
-  if (role === 0) { e.lv = LEVELS[1]; voiceUp(k); }
+  if (role === 0) { e.lv = LEVELS[1]; voiceUp(k); } else if (k === -1) voiceUp('photog');
   S.byId.set(id, e); S.people.push(e);
   const fs = S.people.filter(p => p.role === 'fighter');
   if (fs.length === 2) {

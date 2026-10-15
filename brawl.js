@@ -211,7 +211,7 @@ const POSE = {
   camSit: () => ({ torso: -.06, head: .1, ...legs(.05, .15, D, D + .1) }),  // sitting, camera arms untouched
   drag: t => ({ ...stride(t, .35, .5), torso: .25, head: -.1, bUA: [D + 1.1], bFA: [D + .9], fUA: [D - .25], fFA: [D - .1] }),  // pulling a chair along behind
   smoke: k => ({ torso: -.06 + .04 * k, head: .1 - .2 * k, ...legs(.05, .15, D, D + .1), bUA: [D - .25], bFA: [.35],
-    fUA: [D - .3 - (D - .3 + .3) * k], fFA: [.3 + (-2.7 - .3) * k] }),  // the front hand goes from the knee to the lips and back
+    fUA: [D - .3 + (2.45 - D + .3) * k], fFA: [.3 + (-1.55 - .3) * k] }),  // the front hand goes from the knee across to the lips and back (angles found on his rig)
   camAim: () => ({ torso: .08, head: .15, ...legs(D - .3, D + .35, D + .05, D + .45) }),
   camShoot: () => ({ torso: -.1, head: -.12, ...legs(D - .3, D + .35, D + .05, D + .45) }),
 };

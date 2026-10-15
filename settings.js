@@ -25,7 +25,9 @@ const CSS = `
 #controls .key.empty { background: rgba(255, 255, 255, .15); color: #fff; }
 #controls .key.wait { background: #ff4d3a; color: #fff; animation: kb 1s steps(1) infinite; }
 @keyframes kb { 50% { opacity: .5; } }
-#controls .bar { display: flex; gap: 1em; margin-top: 2.5cqh; flex-wrap: wrap; }
+#controls .head { display: flex; justify-content: space-between; align-items: center; gap: 1em; flex-wrap: wrap; margin-bottom: 1.5cqh; }
+#controls .head h2 { margin: 0; }
+#controls .bar { display: flex; gap: 1em; flex-wrap: wrap; }
 #controls .bar button { font: inherit; padding: .8em 1.4em; border: 2px solid #1d0d00; border-radius: 6px; cursor: pointer; background: #fff; color: #1d0d00; }
 #controls .bar .go { background: #ffd23f; }
 #controls .p1 { color: #ff4d3a; } #controls .p2 { color: #3aa0ff; }`;
@@ -53,10 +55,9 @@ function table(set, p, title, cls) {
   return `<div><h3 class="${cls || ''}">${title}</h3><table>${rows}</table></div>`;
 }
 function render() {
-  root.innerHTML = `<h2>CONTROLS</h2><ul>${TIPS.map(t => `<li>${t}</li>`).join('')}</ul>
+  root.innerHTML = `<div class="head"><h2>CONTROLS</h2><div class="bar"><button class="go" data-done>DONE</button><button data-reset>RESET KEYS</button></div></div><ul>${TIPS.map(t => `<li>${t}</li>`).join('')}</ul>
     <div class="cols">${table('solo', 0, 'ONE PLAYER (VS CPU, ONLINE)')}${table('duo', 0, 'TWO PLAYERS: P1', 'p1')}${table('duo', 1, 'TWO PLAYERS: P2', 'p2')}</div>
-    <p>Click a key, then press the new one. Backspace clears a second key, Esc cancels.</p>
-    <div class="bar"><button class="go" data-done>DONE</button><button data-reset>RESET KEYS</button></div>`;
+    <p>Click a key, then press the new one. Backspace clears a second key, Esc cancels.</p>`;
 }
 function save() { window.Brawl.keys.set(keys); wait = null; render(); }
 addEventListener('keydown', e => {  // capture before the game or the 3D page sees it

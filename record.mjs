@@ -68,9 +68,8 @@ await step(Math.round(3.2 * FPS));
 const cb = await page.evaluate(() => document.querySelector('#controls-btn').getBoundingClientRect().toJSON());
 await glide([cb.left + cb.width / 2, cb.top + cb.height / 2], .6); await page.mouse.click(...mouse); log('controls page');
 await step(Math.round(3 * FPS));
-const done = await page.evaluate(() => document.querySelector('#controls .bar .go').getBoundingClientRect().toJSON());
-if (done.top < VH) { await glide([done.left + done.width / 2, done.top + done.height / 2], .5); await page.mouse.click(...mouse); }
-else await page.keyboard.press('Escape');
+const done = await page.evaluate(() => document.querySelector('#controls .go').getBoundingClientRect().toJSON());
+await glide([done.left + done.width / 2, done.top + done.height / 2], .5); await page.mouse.click(...mouse);
 await step(Math.round(.6 * FPS));
 await glide(at(.617, .652), .9); await page.mouse.click(...mouse); log('picked', await page.textContent('.p1 .name'));   // the groom
 await step(Math.round(1.6 * FPS));

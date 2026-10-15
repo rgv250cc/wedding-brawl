@@ -33,8 +33,9 @@ await p.waitForTimeout(900); await setup(); const hp0 = 112; let froze = false; 
 for (let w = 0; w < 20 && !froze; w++) { froze = (await p.evaluate(() => Brawl.state.freeze)) > 0; await p.waitForTimeout(10); }
 check(froze && (await st()).hp < hp0, 'a landed jab causes hit-stop and damage', `hit-stop seen ${froze}`);
 await p.waitForTimeout(400);
-await setup(.045, { lv: undefined }); await p.evaluate(() => { const c = Brawl.state.players[1]; c.lv = { ...Brawl.state.players[0].lv, block: 1, think: 99, rate: 0, speed: 0, combo: 0, grab: 0 }; });
+await setup(.045, { lv: undefined }); await p.evaluate(() => { const c = Brawl.state.players[1]; c.lv = { ...Brawl.state.players[0].lv, block: 1, think: 99, rate: 0, speed: 0, combo: 0, grab: 0, roll: 0 }; clearInterval(window._pin2); window._pin2 = setInterval(() => { c.y = 0; c.vy = 0; }, 5); });  // the idle CPU hops now and then; nobody blocks in the air
 await tap('j', 0); await p.waitForTimeout(150); s = await st();
+await p.evaluate(() => clearInterval(window._pin2));
 check(s.c === 'block' && s.hp > 110, 'a blocking rival takes only chip damage', `state ${s.c}, hp ${s.hp.toFixed(1)}`);
 await p.waitForTimeout(400);
 

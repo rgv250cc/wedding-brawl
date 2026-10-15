@@ -62,6 +62,18 @@ The **Controls** button on the main page explains how to play and lets you remap
   `cloudflared tunnel --url http://localhost:8780` (free, no account), and send them the URL and the code.
   Without `BRAWL_CODE` the server is open to anyone who can reach it. It listens on 127.0.0.1 unless you set `HOST`.
 
+## Publish on Cloudflare
+
+`deploy/build.sh` copies exactly the files the page loads (the `PAGE` list in `server.mjs`) into `deploy/public/`, then
+`cd deploy && npx wrangler deploy` publishes them to https://wedding-brawl.grinevich.cc (set in `deploy/wrangler.toml`).
+`deploy/worker.js` serves the static files and runs the online relay at `/room` (the same protocol as `server.mjs`) in one
+Durable Object, so online play works there too. It runs on the free Workers plan.
+
+The deployed site is public: there is no access code, and anyone with the URL gets the photos of every guest.
+
+`npx wrangler dev` (in `deploy/`) runs the same thing on http://127.0.0.1:8787. `NETTEST_URL=<url> node nettest.mjs` runs
+the online test against a running site instead of starting `server.mjs`.
+
 ## Build from a photo
 
 `./build.sh photo.jpg --name "0.55,0.70=Dana|The Bride" --bodies cyborg` runs `make_layers.py` and `make_rigs.py` on a

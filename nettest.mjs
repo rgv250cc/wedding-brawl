@@ -2,12 +2,14 @@
 // matched and fight. Checks the guest's keys move and attack with its fighter on the host's screen, both screens agree on
 // where everyone is, then a duel invite round, and finally the guest walks out and the host is told and sent back to the
 // lobby. Serves real files, so layers.js/fighters.js must be here. node nettest.mjs   (exit code 1 on any failure)
+// NETTEST_URL=https://host/ node nettest.mjs tests a site that is already running (wrangler dev, the deployed Worker) instead of starting server.mjs.
 import { chromium } from 'playwright-core';
 import { spawn } from 'child_process';
 
-const PORT = 8790 + Math.floor(Math.random() * 100), URL = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('node', ['server.mjs'], { env: { ...process.env, PORT: String(PORT), BRAWL_CODE: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
-await new Promise((res, rej) => { srv.stdout.on('data', d => /http:/.test(d) && res()); srv.on('exit', c => rej(new Error('server exited ' + c))); });
+const PORT = 8790 + Math.floor(Math.random() * 100), URL = process.env.NETTEST_URL || `http://127.0.0.1:${PORT}/`;
+const srv = process.env.NETTEST_URL ? null : spawn('node', ['server.mjs'], { env: { ...process.env, PORT: String(PORT), BRAWL_CODE: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+if (srv) await new Promise((res, rej) => { srv.stdout.on('data', d => /http:/.test(d) && res()); srv.on('exit', c => rej(new Error('server exited ' + c))); });
+console.log('testing ' + URL);
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 let fails = 0;
 const check = (ok, what, extra = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}${extra ? ' — ' + extra : ''}`); if (!ok) fails++; };
@@ -40,7 +42,7 @@ try {
   check(names[0] === host.name && names[1] === guest.name, 'guest shows host as P1 and itself as P2', names.join(' vs '));
 
   // the guest moves: its fighter must move on the host's screen too
-  const p2x = () => S(host, () => { const s = window.Brawl.state, p = s.players[1]; p.hp = 140; s.photog && (s.photog.think = 99, s.photog.target = null); return p.x; });
+  const p2x = () => S(host, () => { const s = window.Brawl.state, p = s.players[1]; p.hp = 112; s.photog && (s.photog.think = 99, s.photog.target = null); return p.x; });
   await S(host, () => { const p = window.Brawl.state.players[1]; window.Brawl.state.players[0].x = .2; });
   const x0 = await p2x(), side = x0 < .5 ? 'KeyD' : 'KeyA';
   await guest.page.keyboard.down(side === 'KeyD' ? 'd' : 'a'); await guest.page.waitForTimeout(700); await guest.page.keyboard.up(side === 'KeyD' ? 'd' : 'a');
@@ -75,6 +77,6 @@ try {
   check(await until(host.page, fighting, null, 30000) && await until(c.page, fighting, null, 30000), 'accepted duel starts a fight on both screens');
   check((await role(c)) === 'host', 'the challenger hosts the duel');
 } catch (e) { check(false, 'test crashed', e.message); }
-await browser.close(); srv.kill();
+await browser.close(); srv?.kill();
 console.log(fails ? `${fails} check(s) failed` : 'online play ok');
 process.exit(fails ? 1 : 0);

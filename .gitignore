@@ -21,3 +21,6 @@ nicknames.js
 voices-raw/
 voices.js
 voices-credits.md
+# Cloudflare build output (copies of the private files above) and wrangler state
+deploy/public/
+deploy/.wrangler/

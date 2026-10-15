@@ -86,6 +86,7 @@ All of these generated files show real people or the venue, so they stay out of 
 - `probe.mjs` / `shot.mjs`: run a match headless and screenshot it / screenshot any page once its title says ready.
 - `make_sounds.py`: builds `sounds.js` from the free sound packs listed in the file (downloaded into `sound-packs/`).
 - `make_ballroom.py`: generates the ballroom backdrop.
+- `make_voices.py`: builds `voices.js` (the fighters' voices, 10 male and 10 female) from Pixabay clips you download.
 
 ## Credits
 

@@ -19,7 +19,7 @@
 </head>
 <body>
 <p>Finisher comics (dev tool): every act and finale as a single panel, then one whole strip at a few moments.
-Query: <code>?kinds=cake,moon</code>, <code>?cols=2</code>, <code>?strip=0</code>, <code>?acts=0</code>, <code>?t=1,4.6</code>, <code>?a=69&amp;v=10</code>, <code>?lt=1.1</code>, <code>?sw=1280&amp;sh=720</code>.</p>
+Query: <code>?kinds=cake,moon</code>, <code>?cols=2</code>, <code>?strip=0</code>, <code>?acts=0</code>, <code>?t=1,4.6</code>, <code>?a=69&amp;v=10</code>, <code>?lt=1.1</code>, <code>?sw=1280&amp;sh=720</code>, <code>?props=0</code> (the drawn stand-ins).</p>
 <section id="acts"></section>
 <section id="strip"></section>
 <script src="layers.js"></script>
@@ -27,6 +27,7 @@ Query: <code>?kinds=cake,moon</code>, <code>?cols=2</code>, <code>?strip=0</code
 <script src="rigs.js"></script>
 <script src="puppet.js"></script>
 <script src="brawl.js"></script>
+<script src="props.js"></script>
 <script src="comic.js"></script>
 <script>
 // nicknames by look, for the two default guests; anyone else is "Guest N"
@@ -98,6 +99,7 @@ function room(g, W, H, a, v) {  // a stand-in for the frozen game underneath
 (async () => {
   await Promise.race([Promise.all(['40px Bungee', '20px "Press Start 2P"'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 4000))]).catch(() => {});
   await document.fonts.ready;
+  if (q.get('props') === '0') window.PROPS = undefined; else await Comic.preload();  // the photo props, decoded before anything is painted
   const [A, V] = await Promise.all([guest(AK), guest(VK)]), only = q.get('kinds') ? q.get('kinds').split(',') : null;
   if (q.get('acts') !== '0') {
     const sec = document.getElementById('acts');

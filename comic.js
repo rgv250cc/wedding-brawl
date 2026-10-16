@@ -2,7 +2,9 @@
 // over the canvas, then a K.O. card. Everything is a pure function of (scene, t), so both screens of an online match agree.
 // fin = { name, panels: [{ act, word, say, cap }] x3, end: { act, word, cap }, quip }; {A} / {V} = attacker / victim name.
 // window.Comic: ACTS, ENDS, length(fin), cues(fin) -> [[seconds, sfx]], draw(ctx, W, H, { a, v, fin }, t) with a/v = { rig, img, name },
-// and panel(ctx, w, h, scene, spec, lt): one panel on its own (comics.html).
+// and panel(ctx, w, h, scene, spec, lt): one panel on its own (comics.html); preload() resolves once the photo props (props.js) have decoded.
+// Objects are cut-out photos from props.js, pasted in like a magazine collage; the comic art (sound words, bubbles, backdrops, speed lines,
+// stars, hearts, sweat) stays inked, and so does any object whose photo isn't there.
 (() => {
 'use strict';
 const TAU = Math.PI * 2, PI = Math.PI, D = PI / 2, PANEL = 1.15, KO = 2.6;
@@ -142,6 +144,51 @@ function eyes(b) {  // the portraits face the camera: two eyes side by side acro
   return [-1, 1].map(s => [e[0] - uy * s * hr * .34, e[1] + ux * s * hr * .34]);
 }
 
+// ---- photo props (props.js): real cut-outs with a white paper rim, pasted into the panels like a magazine collage. Every object
+// below tries its photo first and falls back to the old ink drawing when props.js isn't loaded (or the photo hasn't decoded yet).
+const PICS = ['wcake', 'bouquet', 'dove', 'ufo', 'phone', 'flute', 'bottle', 'chair', 'rocket', 'tie', 'shoe', 'heel', 'skull', 'tooth', 'moon',
+  'chandelier', 'punchbowl', 'topper', 'pretzel', 'frame', 'bone', 'plate'];
+const pics = {};
+let missed = 0;  // photos asked for that were still decoding: a panel painted with stand-ins isn't kept (see settled)
+function photo(key) {
+  const p = window.PROPS && window.PROPS[key];
+  if (!p || !p.img) return null;
+  let im = pics[key];
+  if (!im) { im = pics[key] = new Image(); im.src = p.img; }
+  if (!im.complete || !im.naturalWidth) { missed++; return null; }
+  return { im, p, w: im.naturalWidth, h: im.naturalHeight };
+}
+function warm() { if (window.PROPS) for (const k of PICS) if (!pics[k]) photo(k); }
+function preload() { warm(); return Promise.all(Object.values(pics).map(im => im.decode ? im.decode().catch(() => {}) : null)); }
+const anchor = (P, a) => Array.isArray(a) ? a : P.p[a] || [.5, .5];
+function lift(g, s) {  // a hard drop shadow (screen pixels, so it falls the same way whatever the photo's turn): pasted on, not printed
+  const m = g.getTransform(), k = Math.hypot(m.a, m.b) || 1;
+  g.shadowColor = 'rgba(20, 11, 8, .38)'; g.shadowBlur = 0; g.shadowOffsetX = g.shadowOffsetY = Math.max(1, s * .035 * k);
+}
+// pic: photo `key` with its anchor (a named point of the prop, or [fx, fy] of the image) at (x, y). size = its height on screen, or
+// [w, h] with either null to follow the photo's shape; turned by rot about the anchor, mirrored when flip; o.sx / o.sy stretch it
+// afterwards, o.alpha fades it, o.clip ([[fx, fy], ...] in the image) keeps only that part of it. false: no photo, so the caller
+// draws its old shape
+function pic(g, key, at_, x, y, size, rot = 0, flip = false, o = {}) {
+  const P = photo(key); if (!P) return false;
+  const a = anchor(P, at_), [sw, sh] = Array.isArray(size) ? size : [null, size];
+  const H = (sh ?? sw * P.h / P.w) * (o.sy || 1), W = (sw ?? sh * P.w / P.h) * (o.sx || 1);
+  g.save(); g.translate(x, y); if (rot) g.rotate(rot); if (flip) g.scale(-1, 1); if (o.alpha != null) g.globalAlpha *= o.alpha;
+  if (o.clip) { g.beginPath(); for (const [fx, fy] of o.clip) g.lineTo((fx - a[0]) * W, (fy - a[1]) * H); g.closePath(); g.clip(); }
+  lift(g, Math.min(W, H)); g.drawImage(P.im, -a[0] * W, -a[1] * H, W, H);
+  g.restore(); return true;
+}
+// span: photo `key` laid between two points, anchor a1 on p and anchor a2 on q; thick = its width across that line on screen
+// (null: true to the photo's shape)
+function span(g, key, a1, a2, p, q, thick = null) {
+  const P = photo(key); if (!P) return false;
+  const A = anchor(P, a1), B = anchor(P, a2), dx = (B[0] - A[0]) * P.w, dy = (B[1] - A[1]) * P.h, l0 = Math.hypot(dx, dy) || 1;
+  const k = Math.hypot(q[0] - p[0], q[1] - p[1]) / l0, across = Math.abs(dx) > Math.abs(dy) ? P.h : P.w, kt = thick == null ? k : thick / across;
+  g.save(); g.translate(p[0], p[1]); g.rotate(Math.atan2(q[1] - p[1], q[0] - p[0])); lift(g, across * kt); g.scale(k, kt);
+  g.rotate(-Math.atan2(dy, dx)); g.drawImage(P.im, -A[0] * P.w, -A[1] * P.h, P.w, P.h);
+  g.restore(); return true;
+}
+
 // ---- ink and paper
 const ink = (g, fill, lw) => { if (fill) { g.fillStyle = fill; g.fill(); } if (lw) { g.lineWidth = lw; g.strokeStyle = INK; g.stroke(); } };
 const outline = (g, fill, lw) => { g.lineWidth = lw * 2; g.strokeStyle = INK; g.stroke(); g.fillStyle = fill; g.fill(); };
@@ -176,6 +223,7 @@ function spiral(g, x, y, r, rot, color, lw) {
   g.strokeStyle = color; g.lineWidth = lw; g.stroke();
 }
 function tooth(g, x, y, s, rot) {
+  if (pic(g, 'tooth', 'center', x, y, s * 1.35, rot)) return;
   g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s); g.beginPath();
   g.moveTo(-.45, -.3); g.quadraticCurveTo(-.5, -.75, -.2, -.65); g.quadraticCurveTo(0, -.55, .2, -.65); g.quadraticCurveTo(.5, -.75, .45, -.3);
   g.lineTo(.35, .45); g.quadraticCurveTo(.25, .65, .13, .4); g.lineTo(0, .08); g.lineTo(-.13, .4); g.quadraticCurveTo(-.25, .65, -.35, .45);
@@ -215,7 +263,13 @@ function stars(g, x, y, rx, ry, lt, n, s) {  // dizzy stars circling a head
   for (let j = 0; j < n; j++) { const a = lt * 4 + j * TAU / n;
     star(g, x + Math.cos(a) * rx, y + Math.sin(a) * ry, s * (.8 + .25 * Math.sin(a)), a, '#ffe14d', s * .14); }
 }
-function cake(g, x, y, s) {  // three tiers, bottom centre at (x, y), s = width of the bottom tier
+const CAKE_W = 1.1, CAKE_TOP = .07;  // the wedding cake photo: its width per bottom tier, and where its top tier's top is
+function cakeH(s) {  // how far above the bottom the top of the cake is, where a topper would stand
+  const P = photo('wcake');
+  return P ? s * CAKE_W * P.h / P.w * (anchor(P, 'base')[1] - CAKE_TOP) : s * .91;
+}
+function cake(g, x, y, s) {  // a tiered wedding cake, bottom centre at (x, y), s = width of the bottom tier
+  if (pic(g, 'wcake', 'base', x, y, [s * CAKE_W, null])) return;
   g.save(); g.translate(x, y); let yy = 0;
   [[1, .34], [.74, .3], [.5, .27]].forEach(([tw, th], i) => {
     const hw = s * tw / 2, ht = s * th;
@@ -240,6 +294,7 @@ function flower(g, x, y, r, col) {
   g.beginPath(); g.arc(x, y, r * .3, 0, TAU); ink(g, '#ffd23f', r * .1);
 }
 function bouquet(g, x, y, s, rot) {  // the stems' end at (x, y), flowers toward -y
+  if (pic(g, 'bouquet', 'stem', x, y, s * 1.05, rot)) return;
   g.save(); g.translate(x, y); g.rotate(rot);
   for (const a of [-1, 1]) { g.beginPath(); g.ellipse(a * s * .3, -s * .58, s * .18, s * .07, a * .7, 0, TAU); ink(g, '#3fae4a', s * .025); }
   g.beginPath(); g.moveTo(-s * .1, 0); g.lineTo(s * .1, 0); g.lineTo(s * .3, -s * .5); g.lineTo(-s * .3, -s * .5); g.closePath();
@@ -252,7 +307,8 @@ function bouquet(g, x, y, s, rot) {  // the stems' end at (x, y), flowers toward
   g.restore();
 }
 function petal(g, x, y, s, rot, col) { g.beginPath(); g.ellipse(x, y, s, s * .55, rot, 0, TAU); ink(g, col, s * .18); }
-function dove(g, x, y, s, face, flap) {
+function dove(g, x, y, s, face, flap) {  // body at (x, y), s = half its length; flap -1..1 (the photo's wings beat by squashing)
+  if (pic(g, 'dove', 'center', x, y, s * 2.5, -.12 * flap * face, face < 0, { sy: .84 + .16 * flap })) return;
   g.save(); g.translate(x, y); g.scale(face, 1); const lw = s * .09;
   g.beginPath(); g.moveTo(-s * .45, 0); g.lineTo(-s * 1.05, -s * .3); g.lineTo(-s * 1.05, s * .22); g.closePath(); ink(g, '#fff', lw);
   g.beginPath(); g.ellipse(0, 0, s * .62, s * .32, -.1, 0, TAU); ink(g, '#fff', lw);
@@ -269,6 +325,7 @@ function feather(g, x, y, s, rot) {
   g.beginPath(); g.moveTo(-s * 1.2, 0); g.lineTo(s * .9, 0); g.lineWidth = s * .08; g.strokeStyle = '#9aa4b5'; g.stroke(); g.restore();
 }
 function ufoShip(g, x, y, s, lt) {  // s = half-width of the saucer
+  if (pic(g, 'ufo', 'center', x, y, [s * 2.1, null], Math.sin(lt * 2) * .07)) return;
   g.save(); g.translate(x, y); g.rotate(Math.sin(lt * 2) * .07); const lw = s * .05;
   g.beginPath(); g.ellipse(0, -s * .16, s * .42, s * .4, 0, PI, 0); g.closePath(); ink(g, 'rgba(170, 235, 255, .9)', lw);
   g.beginPath(); g.ellipse(0, -s * .3, s * .15, s * .17, 0, 0, TAU); ink(g, '#7ddb4f', lw * .7);
@@ -291,11 +348,13 @@ function handprint(g, x, y, s, rot) {
   g.restore();
 }
 function phone(g, s) {  // in the hand frame: held up along the forearm
+  if (pic(g, 'phone', 'hold', 0, 0, s * 1.2, D)) return;  // the photo: upright in the fist, over the top of it
   g.save(); g.rotate(-D); g.beginPath(); g.roundRect(-s * .3, -s * 1.05, s * .6, s * 1.05, s * .1); ink(g, '#22252e', s * .06);
   g.beginPath(); g.roundRect(-s * .22, -s * .95, s * .44, s * .82, s * .05); ink(g, '#58d4ff');
   g.restore();
 }
-function flute(g, s) {  // champagne glass along the forearm
+function flute(g, s) {  // champagne glass along the forearm, its foot in the hand and the rim at s
+  if (span(g, 'flute', [.5, .99], 'rim', [0, 0], [s * 1.05, 0])) return;
   g.save(); g.lineWidth = s * .05;
   g.beginPath(); g.moveTo(s * .05, 0); g.lineTo(s * .45, 0); g.strokeStyle = INK; g.lineWidth = s * .09; g.stroke(); g.strokeStyle = '#e8f6ff';
   g.lineWidth = s * .04; g.stroke();
@@ -304,7 +363,8 @@ function flute(g, s) {  // champagne glass along the forearm
   g.fillStyle = '#fff'; for (let j = 0; j < 3; j++) { g.beginPath(); g.arc(s * (.65 + j * .13), s * .02 * (j - 1), s * .025, 0, TAU); g.fill(); }
   g.restore();
 }
-function chairArt(g, x, y, s, rot) {  // folding chair, seat centre at (x, y)
+function chairArt(g, x, y, s, rot) {  // folding chair, seat centre at (x, y), backrest toward -y
+  if (pic(g, 'chair', 'seat', x, y, s * 1.85, rot)) return;
   g.save(); g.translate(x, y); g.rotate(rot); g.lineCap = 'round';
   const bar = (pts, w) => { for (const [col, lw] of [[INK, w * 1.7], ['#aab3bd', w]]) { g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
       pts.forEach(([px, py], i) => i ? g.lineTo(px * s, py * s) : g.moveTo(px * s, py * s)); g.stroke(); } };
@@ -315,12 +375,47 @@ function chairArt(g, x, y, s, rot) {  // folding chair, seat centre at (x, y)
   ink(g, '#9aa4ae', s * .05);
   g.restore();
 }
-function rocketFist(g, x, y, s, ang, lt) {
-  g.save(); g.translate(x, y); g.rotate(ang);
-  const fl = s * (2 + .3 * Math.sin(lt * 50)), gr = g.createLinearGradient(-fl, 0, -s * .4, 0);
+function flame(g, x0, s, lt) {  // rocket exhaust from x0 backwards (toward -x)
+  const fl = s * (2 + .3 * Math.sin(lt * 50)), gr = g.createLinearGradient(x0 - fl, 0, x0 + s * .05, 0);
   gr.addColorStop(0, 'rgba(255, 60, 0, 0)'); gr.addColorStop(.4, '#ff5a00'); gr.addColorStop(1, '#ffe14d');
-  g.beginPath(); g.moveTo(-s * .45, -s * .38); g.quadraticCurveTo(-fl * .6, -s * .3, -fl, 0);
-  g.quadraticCurveTo(-fl * .6, s * .3, -s * .45, s * .38); g.closePath(); g.fillStyle = gr; g.fill();
+  g.beginPath(); g.moveTo(x0, -s * .38); g.quadraticCurveTo(x0 - fl * .6, -s * .3, x0 - fl, 0);
+  g.quadraticCurveTo(x0 - fl * .6, s * .3, x0, s * .38); g.closePath(); g.fillStyle = gr; g.fill();
+}
+function armOff(b, fn) {  // paint a puppet without its front forearm (it has gone off on a rocket); the rig is put back as it was
+  const r = b && b.r; if (!r || !r.parts) return fn();
+  const part = r.parts.fFA, cy = r.cyber.has('fFA');
+  delete r.parts.fFA; r.cyber.delete('fFA');
+  try { fn(); } finally { if (part) r.parts.fFA = part; if (cy) r.cyber.add('fFA'); }
+}
+function forearm(g, b) {  // that forearm on its own, as the puppet has it (photo, or chrome with a claw): the fist at the origin, pointing +x
+  const r = b && b.r; if (!r || !r.parts || !r.J.fe || !r.J.fw) return false;
+  const J = r.J, kk = b.h / (r.foot - r.top), e = J.fe, f = J.fhand || J.fw, part = r.parts.fFA;
+  if (!part && !r.cyber.has('fFA')) return false;
+  g.save(); g.scale(kk, kk); if ((b.o.face || 1) < 0) g.scale(1, -1); g.rotate(-Math.atan2(f[1] - e[1], f[0] - e[0])); g.translate(-f[0], -f[1]);
+  if (r.cyber.has('fFA')) {  // the chrome arm, as Puppet draws it
+    const wd = .21 * r.sw, L = Math.hypot(J.fw[0] - e[0], J.fw[1] - e[1]);
+    g.translate(e[0], e[1]); g.rotate(Math.atan2(J.fw[1] - e[1], J.fw[0] - e[0]));
+    const gr = g.createLinearGradient(0, -wd / 2, 0, wd / 2); gr.addColorStop(0, '#f2f6fa'); gr.addColorStop(.45, '#a9b4bf'); gr.addColorStop(1, '#4b5560');
+    g.fillStyle = gr; g.strokeStyle = '#1d232a'; g.lineWidth = wd * .12;
+    g.beginPath(); g.roundRect(-wd * .15, -wd / 2, L + wd * .3, wd, wd / 2); g.fill(); g.stroke();
+    g.translate(L, 0); g.beginPath(); g.arc(0, 0, wd * .55, 0, TAU); g.fill(); g.stroke(); g.lineCap = 'round'; g.lineWidth = wd * .28;
+    for (const s of [-1, 0, 1]) { g.beginPath(); g.moveTo(wd * .3, s * wd * .3); g.lineTo(wd * 1.05, s * wd * .45); g.stroke(); }
+  }
+  if (part) g.drawImage(part.canvas, part.x, part.y);
+  g.restore(); return true;
+}
+function rocketFist(g, x, y, s, ang, lt, arm) {  // a fist flying along ang, its knuckles at (x, y); arm: the puppet whose fist it is
+  if (photo('rocket')) {  // the fist riding a real rocket
+    g.save(); g.translate(x, y); g.rotate(ang);
+    flame(g, -s * 3.4, s * 1.3, lt);
+    span(g, 'rocket', 'tail', 'nose', [-s * 3.6, s * .35], [s * .45, s * .35]);
+    g.translate(-s * .1, -s * .35);  // astride it, knuckles first
+    if (!forearm(g, arm)) { const ch = g.createLinearGradient(0, -s * .5, 0, s * .5); ch.addColorStop(0, '#f2f6fa'); ch.addColorStop(1, '#4b5560');
+      g.beginPath(); g.roundRect(-s * .5, -s * .45, s * .8, s * .9, s * .25); ink(g, ch, s * .08); }
+    g.restore(); return;
+  }
+  g.save(); g.translate(x, y); g.rotate(ang);
+  flame(g, -s * .45, s, lt);
   const ch = g.createLinearGradient(0, -s * .5, 0, s * .5); ch.addColorStop(0, '#f2f6fa'); ch.addColorStop(.5, '#a9b4bf');
   ch.addColorStop(1, '#4b5560');
   g.beginPath(); g.roundRect(-s * .6, -s * .3, s * .5, s * .6, s * .08); ink(g, ch, s * .07);
@@ -330,14 +425,35 @@ function rocketFist(g, x, y, s, ang, lt) {
   g.beginPath(); g.arc(-s * .35, 0, s * .1, 0, TAU); ink(g, '#4fd3ff', s * .04);
   g.restore();
 }
-function tieLine(g, pts, lw, k = 1) {  // a burgundy necktie, striped, along a path
+let silk = null;  // a patch of the tie photo's plain blade, mirrored into a tile that repeats without seams
+function silkTile(P) {
+  if (silk && silk.im === P.im) return silk.cv;
+  const sx = Math.round(P.w * .25), sy = Math.round(P.h * .3), sw = Math.max(4, Math.round(P.w * .2)), sh = Math.max(4, Math.round(P.h * .15));
+  const cv = Object.assign(document.createElement('canvas'), { width: sw * 2, height: sh * 2 }), q = cv.getContext('2d');
+  for (const [fx, fy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    q.save(); q.translate(fx < 0 ? sw * 2 : 0, fy < 0 ? sh * 2 : 0); q.scale(fx, fy); q.drawImage(P.im, sx, sy, sw, sh, 0, 0, sw, sh); q.restore();
+  }
+  silk = { im: P.im, cv }; return cv;
+}
+function tieLine(g, pts, lw, k = 1) {  // a burgundy necktie along a path: the tie photo's silk, or striped ink
   g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
   const path = () => { g.beginPath(); g.moveTo(...pts[0]); for (let i = 1; i < pts.length; i++) g.lineTo(...pts[i]); };
+  const P = photo('tie');
+  if (P) {  // the photo's silk, stroked along the path like a cut-out ribbon: ink edge, white paper rim, the fabric, a sheen
+    const tile = silkTile(P), pat = g.createPattern(tile, 'repeat'), s = lw * 1.4 / tile.height;
+    if (pat.setTransform) pat.setTransform(new DOMMatrix([s, 0, 0, s, k * lw * 3, 0]));
+    path(); g.strokeStyle = INK; g.lineWidth = lw * 1.75; g.stroke();
+    g.strokeStyle = '#fffaf2'; g.lineWidth = lw * 1.45; g.stroke();
+    g.strokeStyle = pat; g.lineWidth = lw; g.stroke();
+    g.translate(-lw * .14, -lw * .16); path(); g.strokeStyle = 'rgba(255, 190, 205, .22)'; g.lineWidth = lw * .2; g.stroke();
+    return g.restore();
+  }
   path(); g.strokeStyle = INK; g.lineWidth = lw * 1.6; g.stroke(); g.strokeStyle = '#8e1b2b'; g.lineWidth = lw; g.stroke();
   g.setLineDash([lw * .5, lw * .9]); g.lineDashOffset = -k * lw * 4; g.strokeStyle = '#e8b04a'; g.lineWidth = lw * .45; g.stroke(); g.setLineDash([]);
   g.restore();
 }
-function shoe(g, x, y, s, face) {
+function shoe(g, x, y, s, face, heel) {  // sole on (x, y), s = its length; heel: a high heel instead of an oxford
+  if (pic(g, heel ? 'heel' : 'shoe', 'sole', x, y, [s * 1.15, null], 0, face < 0)) return;
   g.save(); g.translate(x, y); g.scale(face, 1); g.beginPath();
   g.moveTo(-s * .5, 0); g.lineTo(-s * .5, -s * .32); g.quadraticCurveTo(-s * .22, -s * .44, -s * .02, -s * .3);
   g.quadraticCurveTo(s * .45, -s * .28, s * .62, -s * .1);
@@ -345,7 +461,8 @@ function shoe(g, x, y, s, face) {
   g.fillStyle = 'rgba(255, 255, 255, .55)'; g.beginPath(); g.ellipse(s * .3, -s * .18, s * .12, s * .035, -.3, 0, TAU); g.fill();
   g.restore();
 }
-function boneArt(g, a, b, lw, pass) {  // pass 0: ink, pass 1: bone white
+function boneArt(g, a, b, lw, pass) {  // pass 0: ink, pass 1: bone white (a photo bone draws on pass 1 only)
+  if (photo('bone')) { if (pass) span(g, 'bone', [.072, .381], [.929, .598], a, b, lw * 2.1); return; }
   const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L * lw * .45, ny = dx / L * lw * .45, w = pass ? lw : lw * 1.7,
     r = pass ? lw * .55 : lw * .55 + lw * .35;
   g.strokeStyle = g.fillStyle = pass ? '#f6f1e2' : INK; g.lineWidth = w; g.lineCap = 'round';
@@ -354,6 +471,15 @@ function boneArt(g, a, b, lw, pass) {  // pass 0: ink, pass 1: bone white
     g.arc(p[0] + nx * s, p[1] + ny * s, r, 0, TAU); } g.fill();
 }
 function skull(g, x, y, r, rot, wink, crack) {
+  if (pic(g, 'skull', 'center', x, y, r * 2.15, rot)) {  // a wink and a crack are inked onto the photo
+    if (!wink && !crack) return;
+    g.save(); g.translate(x, y); g.rotate(rot); g.strokeStyle = INK; g.lineCap = 'round';
+    if (wink) { g.beginPath(); g.ellipse(r * .33, -r * .06, r * .26, r * .22, 0, 0, TAU); g.fillStyle = '#e4dccb'; g.fill(); g.lineWidth = r * .1;
+      g.beginPath(); g.moveTo(r * .1, -r * .02); g.quadraticCurveTo(r * .33, -r * .22, r * .56, -r * .02); g.stroke(); }
+    if (crack) { g.lineWidth = r * .07; g.beginPath(); g.moveTo(-r * .1, -r * 1.0); g.lineTo(r * .05, -r * .75); g.lineTo(-r * .12, -r * .55);
+      g.lineTo(r * .1, -r * .3); g.stroke(); }
+    g.restore(); return;
+  }
   g.save(); g.translate(x, y); g.rotate(rot); const lw = r * .1;
   g.beginPath(); g.arc(0, -r * .1, r, 0, TAU); g.moveTo(-r * .55, r * .45); g.roundRect(-r * .55, r * .4, r * 1.1, r * .55, r * .2);
   outline(g, '#f6f1e2', lw);
@@ -593,14 +719,22 @@ const ACT = {
       g.beginPath(); g.ellipse(hd[0] + Math.cos(q) * d, hd[1] + Math.sin(q) * d * .8 + lt * fh * .03, fh * .035, fh * .025, q, 0, TAU);
       ink(g, j % 3 ? '#fff6ea' : '#ff8fc4', h * .005);
     }
-    g.save(); g.translate(p[0], p[1]); g.rotate(lerp(-.4, PI + .2, kc)); g.scale(1 + .08 * kc, 1 - .14 * kc); cake(g, 0, s * .775, s); g.restore();
-    if (kc >= 1) {  // frosting oozing down from the rim
-      const y0 = hd[1] + s * .1, x0 = hd[0] - s * .26, x1 = hd[0] + s * .26, dk = clamp((lt - .26) * 2);
-      g.beginPath(); g.moveTo(x0, y0 - s * .05);
-      for (let j = 0; j < 6; j++) { const xa = lerp(x0, x1, j / 6), xb = lerp(x0, x1, (j + 1) / 6), L = s * (.04 + .16 * hash(seed, j + 9)) * dk;
-        g.lineTo(xa, y0); g.lineTo(xa + s * .01, y0 + L); g.arc((xa + xb) / 2, y0 + L, (xb - xa) / 2 - s * .01, PI, 0, true); g.lineTo(xb, y0); }
-      g.lineTo(x1, y0 - s * .05); g.closePath(); ink(g, '#fff6ea', h * .005);
-    }
+    const P = photo('wcake'), cs = P ? s * .66 : s, cb = P ? cs * CAKE_W * P.h / P.w - s * .2 : s * .775;  // turned over, it lands top tier first
+    const ooze = (x, y, hw, rot, lw) => {  // frosting dripping from the rim; its flat top is tucked under the cake
+      const dk = clamp((lt - .26) * 2);
+      g.save(); g.translate(x, y); g.rotate(rot); g.beginPath(); g.moveTo(-hw, -s * .06);
+      for (let j = 0; j < 6; j++) { const xa = lerp(-hw, hw, j / 6), xb = lerp(-hw, hw, (j + 1) / 6), L = s * (.03 + .19 * hash(seed, j + 9) ** 1.5) * dk;
+        g.lineTo(xa, 0); g.lineTo(xa + s * .008, L); g.arc((xa + xb) / 2, L, (xb - xa) / 2 - s * .008, PI, 0, true); g.lineTo(xb, 0); }
+      g.lineTo(hw, -s * .06); g.closePath();
+      if (lw) ink(g, '#fff6ea', lw);
+      else { g.fillStyle = '#fffaf2'; g.fill(); g.lineWidth = h * .0025; g.strokeStyle = 'rgba(120, 96, 84, .55)'; g.stroke();
+        g.fillStyle = 'rgba(255, 255, 255, .9)'; for (let j = 0; j < 6; j++) { const xa = lerp(-hw, hw, (j + .3) / 6);  // a glint down each drip
+          g.beginPath(); g.ellipse(xa, s * .04, s * .006, s * .025 * dk, 0, 0, TAU); g.fill(); } }
+      g.restore();
+    };
+    if (kc >= 1 && P) ooze(hd[0] - s * .03, hd[1] + s * .13, s * .15, .2, 0);
+    g.save(); g.translate(p[0], p[1]); g.rotate(lerp(-.4, PI + .2, kc)); g.scale(1 + .08 * kc, 1 - .14 * kc); cake(g, 0, cb, cs); g.restore();
+    if (kc >= 1 && !P) ooze(hd[0], hd[1] + s * .1, s * .26, 0, h * .005);
     c.mouth = at(a, 'mouth'); c.word = [w * .4, h * .62, -.16];
   },
   champagne(c) {
@@ -610,7 +744,8 @@ const ACT = {
     const tg = at(v, 'chest'), hd = at(v, 'head'), a = body(c.A, bp('aim'), w * .2, gy, fh), hn = at(a, 'hand'),
       L = Math.max(fh * .3, tg[0] - hn[0]) * clamp(lt / .22);
     a.o.hand = q => {
-      if (window.Brawl) Brawl.drawItem('champagne', fh, D, 0, q);
+      q.save(); q.rotate(D); const shot = pic(q, 'bottle', 'hold', 0, 0, fh * .28); q.restore();  // the bottle's neck along the forearm
+      if (!shot && window.Brawl) Brawl.drawItem('champagne', fh, D, 0, q);
       const x0 = fh * .19, n = 12; if (L <= x0) return;
       q.beginPath();
       for (let i = 0; i <= n; i++) { const x = lerp(x0, L, i / n), wd = fh * (.02 + .12 * (i / n) ** 1.3) * (1 + .18 * Math.sin(lt * 30 + i * 2));
@@ -638,13 +773,14 @@ const ACT = {
     g.beginPath(); g.moveTo(...hn); g.quadraticCurveTo(...mid, ...ch); g.stroke(); g.setLineDash([]);
     if (kb < 1) { const q = mix(mix(hn, mid, kb), mix(mid, ch, kb), kb); bouquet(g, q[0], q[1], fh * .32, kb * 5); }
     else {
-      burst(g, ch[0], ch[1], fh * (.14 + .14 * e), 12, seed, '#fff7a8', h * .008);
+      burst(g, ch[0] - fh * .05, ch[1], fh * (.08 + .08 * e), 12, seed, '#fff7a8', h * .006);  // where it hit, clear of the face
       const cols = ['#ff4f8b', '#ffffff', '#ffd1e3', '#ff7aa8', '#ffe066'];
       for (let j = 0; j < 30; j++) {
         const q = j * TAU / 30 + hash(seed, j), d = fh * (.1 + .38 * hash(seed, j + 40)) * e;
         petal(g, ch[0] + Math.cos(q) * d, ch[1] + Math.sin(q) * d + lt * fh * .06 * hash(seed, j + 7), fh * .03, q + lt * 3, cols[j % 5]);
       }
-      bouquet(g, ch[0] + fh * .3 * e, ch[1] - fh * .35 * e, fh * .26, 1.5 + lt * 4);
+      const bs = fh * .26, br = 1.5 + lt * 4, bc = [ch[0] + fh * .32 * e, ch[1] - Math.min(fh * .35, Math.max(0, ch[1] - h * .27)) * e];  // rebounds clear of
+      bouquet(g, bc[0] - Math.sin(br) * bs * .5, bc[1] + Math.cos(br) * bs * .5, bs, br);  // the face and under the speech bubble, spinning about its middle
     }
     c.mouth = at(a, 'mouth'); c.word = [w * .47, h * .66, -.1];
   },
@@ -715,12 +851,12 @@ const ACT = {
     const { g, w, h, k, fh, gy, lt, seed } = c;
     const a = body(c.A, POSE.selfie, w * .26, gy, fh, { hand: q => phone(q, fh * .17) });
     const v = body(c.V, POSE.shock, w * .7, gy, fh, { face: -1, rot: -.05 });
-    paint(g, a); paint(g, v);
-    const p = at(a, 'hand'), fl = clamp(1 - lt * 1.2) * .5 + .25;
+    const p = at(a, 'hand'), fl = clamp(1 - lt * 1.2) * .5 + .25;  // the flash goes off behind the phone held up in front of it
     g.fillStyle = `rgba(255, 255, 235, ${fl})`; g.beginPath(); g.moveTo(...p); g.lineTo(w * 1.1, gy - fh * 1.1); g.lineTo(w * 1.1, gy - fh * .2);
     g.closePath(); g.fill();
     burst(g, p[0], p[1], fh * (.22 + .03 * Math.sin(lt * 20)), 14, seed, '#ffffff', h * .006, .35);
     burst(g, p[0], p[1], fh * .1, 10, seed + 1, '#fff36b', 0, .5);
+    paint(g, v); paint(g, a);
     const E = eyes(v), hr = at(v, 'hr'), ks = back(clamp(lt / .35)), wob = Math.sin(lt * 22) * (1 - clamp(lt / 1.4)) * fh * .025;
     E.forEach((e, j) => {
       const end = [e[0] - fh * (.13 + .05 * j) * ks + wob, e[1] - fh * (.12 + .06 * (1 - j)) * ks - wob * .5], n = 9, dx = end[0] - e[0], dy = end[1] - e[1],
@@ -781,13 +917,15 @@ const ACT = {
     const { g, w, h, fh, gy, lt, seed } = c, kk = clamp(lt / .3);
     const a = body(c.A, bp('aim'), w * .18, gy, fh);
     const v = body(c.V, bp('hit'), w * (.74 + .04 * kk) + c.shake, gy, fh, { face: -1, rot: .35 * kk });
-    paint(g, v); paint(g, a);
-    const s0 = at(a, 'hand'), tg = at(v, 'head'), p = mix(s0, tg, kk), ang = Math.atan2(tg[1] - s0[1], tg[0] - s0[0]);
+    paint(g, v); if (photo('rocket')) armOff(a, () => paint(g, a)); else paint(g, a);  // the forearm itself rides the rocket
+    const s0 = at(a, 'hand'), hd = at(v, 'head'), hr = at(v, 'hr'), d0 = Math.hypot(hd[0] - s0[0], hd[1] - s0[1]) || 1,
+      ux = (hd[0] - s0[0]) / d0, uy = (hd[1] - s0[1]) / d0, tg = [hd[0] - ux * hr * .9, hd[1] - uy * hr * .9],  // knuckles to the cheek, not through the face
+      p = mix(s0, tg, kk), ang = Math.atan2(tg[1] - s0[1], tg[0] - s0[0]);
     for (let j = 0; j < 7; j++) { const q = j / 7 * kk, pp = mix(s0, tg, q);
       puff(g, pp[0], pp[1] + Math.sin(j * 2 + lt * 3) * fh * .02, fh * (.035 + .03 * q), '#e9edf2', seed + j, h * .003); }
     puff(g, s0[0], s0[1], fh * .07, '#ffffff', seed, h * .004);
-    if (kk >= 1) burst(g, tg[0], tg[1], fh * .2, 12, seed, '#fff36b', h * .007);
-    rocketFist(g, p[0], p[1], fh * .085, ang, lt);
+    if (kk >= 1) burst(g, hd[0] - ux * hr * 1.2, hd[1] - uy * hr * 1.2, fh * .085, 12, seed, '#fff36b', h * .006);  // at the point of contact, under the rocket
+    rocketFist(g, p[0], p[1], fh * .085, ang, lt, a);
     c.mouth = at(a, 'mouth'); c.word = [w * .5, h * .66, -.12];
   },
   doves(c) {
@@ -831,8 +969,9 @@ const ACT = {
     const sx = Math.cos(spin),
       v = body(c.V, bp('flail', lt), vx, gy - fh * .04, fh, { face: -1, sx: turn(sx), rot: Math.sin(lt * 7) * .06, air: 1 });
     const a = body(c.A, POSE.lasso, w * .25, gy, fh); paint(g, a);
-    const hn = at(a, 'hand'), bl = at(v, 'belly'), lc = [hn[0], hn[1] - fh * .06], rx = fh * .2, ry = fh * .055, q = lt * 14;
+    const hn = at(a, 'hand'), bl = at(v, 'belly'), lc = [hn[0], Math.min(hn[1], at(a, 'crown')[1]) - fh * .1], rx = fh * .2, ry = fh * .055, q = lt * 14;  // twirled over the head
     const loop = []; for (let i = 0; i <= 24; i++) { const t2 = i / 24 * TAU + q; loop.push([lc[0] + Math.cos(t2) * rx, lc[1] + Math.sin(t2) * ry]); }
+    if (hn[1] > lc[1] + ry) tieLine(g, [hn, [lc[0] + rx * .1, lc[1] + ry]], fh * .026, lt);  // the fist holds the loop up
     tieLine(g, loop, fh * .03, lt);
     const st = [lc[0] + Math.cos(q) * rx, lc[1] + Math.sin(q) * ry], rope = [];
     for (let i = 0; i <= 12; i++) { const t2 = i / 12;
@@ -842,17 +981,18 @@ const ACT = {
     const wl = []; for (let i = 0; i <= 24; i++) { const t2 = i / 24 * TAU;
       wl.push([bl[0] + Math.cos(t2) * fh * .13, bl[1] + Math.sin(t2) * fh * .035]); }
     tieLine(g, wl.slice(0, 14), fh * .03, lt);
+    pic(g, 'tie', 'knot', bl[0] - fh * .02, bl[1] + fh * .03, fh * .17, .25 + Math.sin(lt * 9) * .12);  // knotted at the front, the blade swinging
     g.strokeStyle = INK; g.lineWidth = h * .008;
     for (let j = 0; j < 3; j++) { const y = gy - fh * (.2 + j * .25); g.beginPath();
       g.ellipse(vx, y, fh * (.3 - j * .04), fh * .05, 0, .2 + j, PI - .2 + j); g.stroke(); }
     c.mouth = at(a, 'mouth'); c.word = [w * .47, h * .66, -.12];
   },
   ufo(c) {
-    const { g, w, h, k, fh, gy, lt, seed } = c, ux = w * .76, uy = h * .36 + Math.sin(lt * 3) * h * .012, us = fh * .32;
+    const { g, w, h, k, fh, gy, lt, seed } = c, ux = w * .76, uy = h * .28 + Math.sin(lt * 3) * h * .012, us = fh * .32;  // high enough to clear the head
     const gr = g.createLinearGradient(0, uy, 0, gy); gr.addColorStop(0, 'rgba(170, 255, 150, .75)'); gr.addColorStop(1, 'rgba(170, 255, 150, .12)');
     g.fillStyle = gr; g.beginPath(); g.moveTo(ux - us * .3, uy + us * .1); g.lineTo(ux + us * .3, uy + us * .1); g.lineTo(ux + fh * .34, gy);
     g.lineTo(ux - fh * .34, gy); g.closePath(); g.fill();
-    const v = body(c.V, bp('flail', lt), ux + Math.sin(lt * 2) * h * .01, gy - fh * (.02 + .1 * k), fh * .75,
+    const v = body(c.V, bp('flail', lt), ux + Math.sin(lt * 2) * h * .01, gy - fh * (.02 + .08 * k), fh * .75,
       { face: -1, rot: Math.sin(lt * 2.3) * .4, air: 1 });
     paint(g, v);
     for (let j = 0; j < 8; j++) { const q = (lt * .7 + hash(seed, j)) % 1;
@@ -870,18 +1010,28 @@ const END = {
   pancake(c) {
     const { g, w, h, k, fh, lt, seed } = c, fy = h * .62, vx = w * .58, floorY = h * .86, th = lerp(1.6, 1, k), len = 1.12;
     floorTiles(g, w, h, fy, '#1d1230', '#f2e9ff', lt, false);
-    g.beginPath(); g.ellipse(vx, floorY + fh * .02, fh * .66, fh * .14, 0, 0, TAU); ink(g, '#e3a54c', h * .008);
-    g.beginPath(); g.ellipse(vx, floorY, fh * .58, fh * .1, 0, 0, TAU); g.fillStyle = 'rgba(160, 84, 20, .3)'; g.fill();
+    if (!pic(g, 'plate', 'center', vx, floorY + fh * .02, [fh * 1.5, null], 0, false, { sy: .55 })) {  // served on a plate
+      g.beginPath(); g.ellipse(vx, floorY + fh * .02, fh * .66, fh * .14, 0, 0, TAU); ink(g, '#e3a54c', h * .008);
+      g.beginPath(); g.ellipse(vx, floorY, fh * .58, fh * .1, 0, 0, TAU); g.fillStyle = 'rgba(160, 84, 20, .3)'; g.fill();
+    }
     const v = body(c.V, POSE.star, vx - fh * .02 + c.shake, floorY + fh * len / 2, fh, { rot: -D, piv: len / 2, sx: th * .62, sy: len }); paint(g, v);
     const dk = clamp((lt - .3) * 2), bl = at(v, 'belly'), kn = at(v, 'fk'), y0 = floorY - fh * .05;
-    g.beginPath(); g.moveTo(vx + fh * .05, y0);
-    for (let j = 0; j < 5; j++) { const x = vx + fh * .1 + j * fh * .08, L = fh * (.04 + .07 * hash(seed, j)) * dk; g.lineTo(x, y0);
-      g.arc(x + fh * .03, y0 + L, fh * .03, PI, 0, true); }
-    g.lineTo(vx + fh * .55, y0 - fh * .01); g.quadraticCurveTo(vx + fh * .3, y0 - fh * .1, vx + fh * .05, y0);
-    ink(g, 'rgba(120, 52, 8, .9)', h * .005);
-    g.fillStyle = 'rgba(255, 255, 255, .5)'; g.beginPath(); g.ellipse(vx + fh * .32, y0 - fh * .04, fh * .06, fh * .01, -.1, 0, TAU); g.fill();
-    g.save(); g.translate(bl[0], bl[1] - fh * .03); g.rotate(-.2); g.beginPath(); g.roundRect(-fh * .07, -fh * .045, fh * .14, fh * .08, fh * .015);
-    ink(g, '#ffe680', h * .005); g.restore();
+    const drips = [0, 1, 2, 3, 4, 5].map(j => [vx + fh * (.09 + .085 * j + .025 * (hash(seed, j + 20) - .5)), fh * (.012 + .012 * hash(seed, j + 30)),
+      fh * (.015 + .13 * hash(seed, j) ** 1.4) * dk]);  // maple syrup, see-through: a glossy pool, runs of uneven length, no ink
+    g.beginPath(); g.moveTo(vx + fh * .03, y0 - fh * .005);
+    for (const [x, r, L] of drips) { g.lineTo(x - r * 1.6, y0); g.quadraticCurveTo(x - r, y0 + r, x - r * .8, y0 + L); g.arc(x, y0 + L, r * .8, PI, 0, true);
+      g.quadraticCurveTo(x + r, y0 + r, x + r * 1.6, y0); }
+    g.lineTo(vx + fh * .57, y0 - fh * .012); g.quadraticCurveTo(vx + fh * .5, y0 - fh * .085, vx + fh * .34, y0 - fh * .065);
+    g.quadraticCurveTo(vx + fh * .2, y0 - fh * .08, vx + fh * .1, y0 - fh * .045); g.quadraticCurveTo(vx + fh * .04, y0 - fh * .035, vx + fh * .03, y0 - fh * .005);
+    const sy = g.createLinearGradient(0, y0 - fh * .08, 0, y0 + fh * .14); sy.addColorStop(0, 'rgba(214, 128, 30, .85)'); sy.addColorStop(1, 'rgba(110, 44, 4, .9)');
+    g.fillStyle = sy; g.fill(); g.lineWidth = h * .0025; g.strokeStyle = 'rgba(70, 28, 2, .5)'; g.stroke();
+    g.strokeStyle = 'rgba(255, 255, 255, .7)'; g.lineWidth = fh * .011; g.beginPath(); g.moveTo(vx + fh * .12, y0 - fh * .035);  // the sheen
+    g.quadraticCurveTo(vx + fh * .24, y0 - fh * .06, vx + fh * .38, y0 - fh * .048); g.stroke();
+    g.fillStyle = 'rgba(255, 255, 255, .6)'; for (const [x, r, L] of drips) if (L > r * 2.5) { g.beginPath(); g.ellipse(x - r * .3, y0 + L * .55, r * .18, L * .2, 0, 0, TAU); g.fill(); }
+    g.save(); g.translate(bl[0], bl[1] - fh * .02); g.rotate(-.15);  // a small pat of butter, melting
+    g.fillStyle = 'rgba(255, 226, 110, .55)'; g.beginPath(); g.ellipse(0, fh * .012, fh * .05, fh * .014, 0, 0, TAU); g.fill();
+    g.fillStyle = '#f1c838'; g.beginPath(); g.roundRect(-fh * .032, -fh * .02, fh * .064, fh * .032, fh * .008); g.fill();
+    g.fillStyle = '#fff2a6'; g.beginPath(); g.roundRect(-fh * .032, -fh * .026, fh * .064, fh * .014, fh * .006); g.fill(); g.restore();
     paint(g, body(c.A, POSE.flex, kn[0] + fh * .05, kn[1] - fh * .02 - (1 - k) * h * .4, fh * .82));
     for (const sd of [-1, 1]) puff(g, vx + sd * fh * .72, floorY + fh * .03, fh * .08 * k, '#fff4dc', seed + sd, h * .004);
     c.word = [w * .2, h * .52, -.18];
@@ -889,9 +1039,11 @@ const END = {
   moon(c) {
     const { g, w, h, fh, gy, lt, seed } = c, mx = w * .76, my = h * .3, mr = h * .19;
     glow(g, w, h, mx, my, mr * 2.4, 'rgba(255, 245, 190, .35)');
-    g.beginPath(); g.arc(mx, my, mr, 0, TAU); ink(g, '#fff3b0', h * .008);
-    g.fillStyle = 'rgba(200, 180, 110, .55)'; for (let j = 0; j < 5; j++) { g.beginPath();
-      g.arc(mx + (hash(seed, j) - .5) * mr * 1.2, my + (hash(seed, j + 5) - .5) * mr * 1.2, mr * (.08 + .12 * hash(seed, j + 9)), 0, TAU); g.fill(); }
+    if (!pic(g, 'moon', 'center', mx, my, mr * 2.04)) {
+      g.beginPath(); g.arc(mx, my, mr, 0, TAU); ink(g, '#fff3b0', h * .008);
+      g.fillStyle = 'rgba(200, 180, 110, .55)'; for (let j = 0; j < 5; j++) { g.beginPath();
+        g.arc(mx + (hash(seed, j) - .5) * mr * 1.2, my + (hash(seed, j + 5) - .5) * mr * 1.2, mr * (.08 + .12 * hash(seed, j + 9)), 0, TAU); g.fill(); }
+    }
     const kk = out3(clamp(lt / .45)), tx = w * .54, ty = h * .2, p = [lerp(w * .3, tx, kk), lerp(gy - fh * .5, ty, kk) - Math.sin(kk * PI) * h * .15];
     g.setLineDash([h * .014, h * .018]); g.strokeStyle = 'rgba(255, 255, 255, .8)'; g.lineWidth = h * .007;
     g.beginPath(); g.moveTo(w * .3, gy - fh * .5); g.quadraticCurveTo(w * .42, h * .05, p[0], p[1]); g.stroke(); g.setLineDash([]);
@@ -910,7 +1062,8 @@ const END = {
     puff(g, o[0], o[1], fh * .35 * clamp(lt * 3) * (1 - clamp((lt - .5) * 1.4)), 'rgba(255, 255, 255, .9)', seed, h * .004);
     for (let j = 0; j < 4; j++) { const q = (lt * .8 + j / 4) % 1;
       puff(g, vx + (j - 1.5) * fh * .07, gy - fh * .1 - q * fh * .3, fh * .05 * (1 + q), `rgba(120, 120, 130, ${.75 * (1 - q)})`, j, 0); }
-    shoe(g, vx - fh * .12, gy - fh * .01, fh * .26, -1); shoe(g, vx + fh * .14, gy - fh * .01, fh * .26, -1);
+    const heel = !!(c.V.rig && c.V.rig.skirt);  // a dress leaves a pair of heels behind
+    shoe(g, vx - fh * .12, gy - fh * .01, fh * .26, -1, heel); shoe(g, vx + fh * .14, gy - fh * .01, fh * .26, -1, heel);
     const cols = ['#ff2d6f', '#ffe14d', '#2dd4ff', '#7dff6a', '#b04dff', '#ff8a00', '#ffffff'];
     for (let j = 0; j < 110; j++) {
       const q = hash(seed, j) * TAU, sp = fh * (.12 + .7 * hash(seed, j + 70)) ** .8, x = o[0] + Math.cos(q) * sp * tau + Math.sin(lt * 3 + j) * fh * .02,
@@ -927,86 +1080,133 @@ const END = {
     const hd = at(v, 'head'), hr = at(v, 'hr'), pose = bp('aim'), a0 = body(c.A, pose, 0, 0, F * .9), f = at(a0, 'hand');
     paint(g, body(c.A, pose, hd[0] - f[0] - hr * (1.6 - .9 * k), hd[1] + hr * .5 - f[1], F * .9));
     paint(g, Object.assign({}, v, { o: Object.assign({}, v.o, { alpha: .3 }) }));
+    burst(g, hd[0] - hr * .8, hd[1] + hr * .5, hr * .66, 9, seed, '#ffffff', h * .005);  // at the fist, under the skull
     skeleton(g, v, lt, true);
-    burst(g, hd[0] - hr * 1.1, hd[1] + hr * .4, hr * 1.1, 9, seed, '#ffffff', h * .006);
     for (let j = 0; j < 5; j++) { const q = -.6 + j * .3, d = hr * (1.3 + 2.2 * k * hash(seed, j)) + lt * hr;
       tooth(g, hd[0] + Math.cos(q) * d, hd[1] + hr * .5 + Math.sin(q) * d, hr * .38, lt * 6 + j); }
     c.word = [w * .5, h * .7, -.12];
   },
   topper(c) {
-    const { g, w, h, fh, gy, lt, seed } = c, cx = w * .64, s = h * .46, kk = clamp(lt / .35), top = gy + h * .02 - s * .91;
+    const { g, w, h, fh, gy, lt, seed } = c, cx = w * .64, kk = clamp(lt / .35), s = photo('wcake') ? h * .3 : h * .46, top = gy + h * .02 - cakeH(s);
     cake(g, cx, gy + h * .02, s);
-    const sh = fh * lerp(.8, .46, out3(kk));
-    g.beginPath(); g.arc(cx, top - sh * .45, sh * .55, PI, 0); g.lineWidth = h * .012; g.strokeStyle = INK; g.stroke(); g.lineWidth = h * .006;
-    g.strokeStyle = '#fff'; g.stroke();
-    for (let j = 0; j < 7; j++) { const q = PI + j * PI / 6;
-      flower(g, cx + Math.cos(q) * sh * .55, top - sh * .45 + Math.sin(q) * sh * .55, h * .022, j % 2 ? '#fff' : '#ff8fc4'); }
-    paint(g, body(c.V, POSE.stiff, cx, top, sh, { face: -1 }));
+    const T = photo('topper'), sh = fh * lerp(.8, T ? .44 : .46, out3(kk));
+    let feet = top;
+    if (T) {  // the real topper with its groom cut away: the victim stands in his place on the base, next to the bride
+      const th = fh * .5, tw = th * T.w / T.h;
+      pic(g, 'topper', 'base', cx + tw * .27, top, th, 0, false,
+        { clip: [[.47, -.05], [1.05, -.05], [1.05, 1.05], [-.05, 1.05], [-.05, .9], [.4, .9], [.4, .54], [.47, .47]] });
+      feet = top - th * .084;
+    } else {
+      g.beginPath(); g.arc(cx, top - sh * .45, sh * .55, PI, 0); g.lineWidth = h * .012; g.strokeStyle = INK; g.stroke(); g.lineWidth = h * .006;
+      g.strokeStyle = '#fff'; g.stroke();
+      for (let j = 0; j < 7; j++) { const q = PI + j * PI / 6;
+        flower(g, cx + Math.cos(q) * sh * .55, top - sh * .45 + Math.sin(q) * sh * .55, h * .022, j % 2 ? '#fff' : '#ff8fc4'); }
+    }
+    paint(g, body(c.V, POSE.stiff, cx, feet, sh, { face: -1 }));
     for (let j = 0; j < 4; j++) { const q = lt * 2 + j * TAU / 4;
-      twinkle(g, cx + Math.cos(q) * sh * .7, top - sh * .5 + Math.sin(q) * sh * .5, h * .025 * (.6 + .4 * Math.sin(lt * 5 + j)), '#ffffff'); }
+      twinkle(g, cx + Math.cos(q) * sh * .7, feet - sh * .5 + Math.sin(q) * sh * .5, h * .025 * (.6 + .4 * Math.sin(lt * 5 + j)), '#ffffff'); }
     paint(g, body(c.A, POSE.laugh, w * .2, gy, fh));
-    c.word = [w * .3, h * .3, -.12]; void seed;
+    c.word = [w * .4, h * .62, -.12]; void seed;
   },
   chandelier(c) {
     const { g, w, h, fh, lt } = c, cx = w * .58, cy = h * .2, s = h * .36, sw = Math.sin(lt * 2.6) * .1;
-    g.strokeStyle = INK; g.lineWidth = h * .012; g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, cy - s * .2); g.stroke();
-    g.strokeStyle = '#d4a53a'; g.lineWidth = h * .006; g.stroke();
-    const ring = (from, to) => { g.beginPath(); g.ellipse(cx, cy, s * .62, s * .14, 0, from, to); g.strokeStyle = INK; g.lineWidth = s * .09;
-      g.stroke(); g.strokeStyle = '#e2b23e'; g.lineWidth = s * .05; g.stroke(); };
-    const candle = q => { const x = cx + Math.cos(q) * s * .62, y = cy + Math.sin(q) * s * .14; g.beginPath();
-      g.rect(x - s * .035, y - s * .2, s * .07, s * .2); ink(g, '#fffaf0', h * .004); drop(g, x, y - s * .26, s * .05, 0, '#ffb31a'); };
-    ring(PI, TAU); for (let i = 0; i < 3; i++) candle(PI + (i + .5) * PI / 3);
-    g.beginPath(); g.roundRect(cx - s * .06, cy - s * .25, s * .12, s * .4, s * .04); ink(g, '#e2b23e', h * .005);
-    paint(g, body(c.V, POSE.dangle(lt), cx + Math.sin(sw) * s * .05, cy + s * .02, fh * .72, { face: -1, rot: PI + sw, piv: 0, air: 1 }));
-    ring(0, PI); for (let i = 0; i < 4; i++) candle((i + .5) * PI / 4);
-    for (let i = 0; i < 9; i++) {
-      const q = i / 8 * PI, x = cx + Math.cos(q) * s * .62, y = cy + Math.sin(q) * s * .14, a = Math.sin(lt * 6 + i) * .25, L = s * (.18 + .1 * (i % 2));
-      const e = [x + Math.sin(a) * L, y + Math.cos(a) * L]; g.strokeStyle = '#d9f2ff'; g.lineWidth = h * .003; g.beginPath(); g.moveTo(x, y);
-      g.lineTo(...e); g.stroke();
-      g.beginPath(); g.moveTo(e[0], e[1] - s * .04); g.lineTo(e[0] + s * .03, e[1]); g.lineTo(e[0], e[1] + s * .06); g.lineTo(e[0] - s * .03, e[1]);
-      g.closePath(); ink(g, '#c8f0ff', h * .003);
+    if (photo('chandelier')) {  // the victim hangs by the feet, tangled in the crystals of a real one
+      const ch = h * .54, hook = [cx, h * .02], feet = rotP([cx, hook[1] + ch * .62], hook, sw);
+      g.strokeStyle = INK; g.lineWidth = h * .012; g.beginPath(); g.moveTo(cx, 0); g.lineTo(...hook); g.stroke();
+      paint(g, body(c.V, POSE.dangle(lt), feet[0], feet[1], fh * .72, { face: -1, rot: PI + sw, piv: 0, air: 1 }));
+      pic(g, 'chandelier', 'hook', hook[0], hook[1], ch, sw);
+    } else {
+      g.strokeStyle = INK; g.lineWidth = h * .012; g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, cy - s * .2); g.stroke();
+      g.strokeStyle = '#d4a53a'; g.lineWidth = h * .006; g.stroke();
+      const ring = (from, to) => { g.beginPath(); g.ellipse(cx, cy, s * .62, s * .14, 0, from, to); g.strokeStyle = INK; g.lineWidth = s * .09;
+        g.stroke(); g.strokeStyle = '#e2b23e'; g.lineWidth = s * .05; g.stroke(); };
+      const candle = q => { const x = cx + Math.cos(q) * s * .62, y = cy + Math.sin(q) * s * .14; g.beginPath();
+        g.rect(x - s * .035, y - s * .2, s * .07, s * .2); ink(g, '#fffaf0', h * .004); drop(g, x, y - s * .26, s * .05, 0, '#ffb31a'); };
+      ring(PI, TAU); for (let i = 0; i < 3; i++) candle(PI + (i + .5) * PI / 3);
+      g.beginPath(); g.roundRect(cx - s * .06, cy - s * .25, s * .12, s * .4, s * .04); ink(g, '#e2b23e', h * .005);
+      paint(g, body(c.V, POSE.dangle(lt), cx + Math.sin(sw) * s * .05, cy + s * .02, fh * .72, { face: -1, rot: PI + sw, piv: 0, air: 1 }));
+      ring(0, PI); for (let i = 0; i < 4; i++) candle((i + .5) * PI / 4);
+      for (let i = 0; i < 9; i++) {
+        const q = i / 8 * PI, x = cx + Math.cos(q) * s * .62, y = cy + Math.sin(q) * s * .14, a = Math.sin(lt * 6 + i) * .25, L = s * (.18 + .1 * (i % 2));
+        const e = [x + Math.sin(a) * L, y + Math.cos(a) * L]; g.strokeStyle = '#d9f2ff'; g.lineWidth = h * .003; g.beginPath(); g.moveTo(x, y);
+        g.lineTo(...e); g.stroke();
+        g.beginPath(); g.moveTo(e[0], e[1] - s * .04); g.lineTo(e[0] + s * .03, e[1]); g.lineTo(e[0], e[1] + s * .06); g.lineTo(e[0] - s * .03, e[1]);
+        g.closePath(); ink(g, '#c8f0ff', h * .003);
+      }
     }
     paint(g, body(c.A, bp('cheer', lt), w * .18, h * 1.04, fh * .82));
     c.word = [w * .26, h * .3, -.14];
   },
   punchbowl(c) {
-    const { g, w, h, k, fh, lt, seed } = c, bx = w * .6, by = h * .62, s = h * .3;
+    const { g, w, h, k, fh, lt, seed } = c, bx = w * .6, by = h * .62, s = h * .3, B = photo('punchbowl');
     g.fillStyle = '#fbfbff'; g.fillRect(0, h * .8, w, h * .2);
     g.beginPath(); g.moveTo(0, h * .8); for (let x = 0; x <= w; x += h * .06) g.quadraticCurveTo(x + h * .03, h * .85, x + h * .06, h * .8);
     g.lineTo(w, h); g.lineTo(0, h); g.closePath(); ink(g, '#ffffff', h * .005);
-    g.beginPath(); g.ellipse(bx, by, s, s * .22, 0, 0, TAU); ink(g, 'rgba(210, 240, 255, .6)', h * .007);
-    g.beginPath(); g.ellipse(bx, by + s * .05, s * .93, s * .18, 0, 0, TAU); g.fillStyle = '#d3123e'; g.fill();
-    paint(g, body(c.V, POSE.kicking(lt), bx, h * .1 + (1 - k) * -h * .3, fh * .7, { face: -1, rot: PI, piv: 0, air: 1 }));
-    g.beginPath(); g.moveTo(bx + s, by); g.ellipse(bx, by, s, s * .22, 0, 0, PI);
-    g.bezierCurveTo(bx - s, by + s * .95, bx + s, by + s * .95, bx + s, by); g.closePath();
-    ink(g, 'rgba(214, 20, 62, .93)', h * .008);
-    g.fillStyle = 'rgba(255, 255, 255, .45)'; g.beginPath(); g.ellipse(bx - s * .55, by + s * .3, s * .08, s * .2, .5, 0, TAU); g.fill();
-    for (let j = 0; j < 3; j++) { g.beginPath(); g.arc(bx + (j - 1) * s * .45, by + s * .45, s * .09, 0, TAU); ink(g, '#ffb02e', h * .004); }
-    g.beginPath(); g.moveTo(bx - s * .15, by + s * .7); g.lineTo(bx + s * .15, by + s * .7); g.lineTo(bx + s * .3, by + s * .9);
-    g.lineTo(bx - s * .3, by + s * .9); g.closePath(); ink(g, 'rgba(210, 240, 255, .9)', h * .006);
+    let rim = by;
+    if (B) {  // head first into a real bowl: the punch hides the half that went in
+      const bh = s * 1.9, bw = bh * B.w / B.h, base = h * .97, ab = anchor(B, 'base'), x0 = bx - bh * .03, nx = x0 + (.515 - ab[0]) * bw;
+      paint(g, body(c.V, POSE.kicking(lt), nx, h * .2 + (1 - k) * -h * .3, fh * .7, { face: -1, rot: PI, piv: 0, air: 1 }));
+      pic(g, 'punchbowl', 'base', x0, base, bh);
+      rim = base - bh * (ab[1] - .25);
+      // the photo's rim dips where the victim went in (x .445-.585 of it): a crown of punch splashes up around the legs and hides it
+      const sy0 = base - bh * (ab[1] - .158), sw = bw * .1, tips = [];
+      const top = () => { g.moveTo(nx - sw * 1.3, sy0 + bh * .01);
+        for (let i = 0; i < 7; i++) {
+          const u = i / 6 - .5, x = nx + u * sw * 2.1, ht = bh * (.08 + .1 * hash(seed, i + 50)) * (.85 + .15 * Math.sin(lt * 9 + i * 2)) * k,
+            lean = u * 1.3, tx = x + lean * ht * .55, ty = sy0 - ht, bw2 = sw * (.13 + .05 * hash(seed, i + 70));
+          g.lineTo(x - bw2, sy0); g.quadraticCurveTo(x - bw2 * .2 + lean * ht * .2, sy0 - ht * .55, tx, ty);
+          g.quadraticCurveTo(x + bw2 * .2 + lean * ht * .2, sy0 - ht * .55, x + bw2, sy0);
+          tips.push([tx + lean * bh * .02, ty - bh * (.025 + .04 * ((lt * 1.4 + hash(seed, i + 60)) % 1)), lean]);
+        }
+        g.lineTo(nx + sw * 1.3, sy0 + bh * .01); };
+      const pg = g.createLinearGradient(0, sy0 - bh * .18, 0, sy0 + bh * .04);  // the photo's punch: orange-red, paler where it sprays thin
+      pg.addColorStop(0, '#ffb48a'); pg.addColorStop(.55, '#ee6a3e'); pg.addColorStop(.8, 'rgba(214, 84, 46, .9)'); pg.addColorStop(1, 'rgba(160, 90, 60, 0)');
+      g.beginPath(); top(); g.lineTo(nx + sw * 1.3, sy0 + bh * .04); g.lineTo(nx - sw * 1.3, sy0 + bh * .04); g.closePath(); g.fillStyle = pg; g.fill();
+      tips.length = 0; g.beginPath(); top(); g.lineWidth = h * .003; g.strokeStyle = INK; g.stroke();  // inked along the splash, not its foot
+      if (k > .5) for (const [x, y, l] of tips) drop(g, x, y, h * .011, l * .6, '#f2643c');
+    } else {
+      g.beginPath(); g.ellipse(bx, by, s, s * .22, 0, 0, TAU); ink(g, 'rgba(210, 240, 255, .6)', h * .007);
+      g.beginPath(); g.ellipse(bx, by + s * .05, s * .93, s * .18, 0, 0, TAU); g.fillStyle = '#d3123e'; g.fill();
+      paint(g, body(c.V, POSE.kicking(lt), bx, h * .1 + (1 - k) * -h * .3, fh * .7, { face: -1, rot: PI, piv: 0, air: 1 }));
+      g.beginPath(); g.moveTo(bx + s, by); g.ellipse(bx, by, s, s * .22, 0, 0, PI);
+      g.bezierCurveTo(bx - s, by + s * .95, bx + s, by + s * .95, bx + s, by); g.closePath();
+      ink(g, 'rgba(214, 20, 62, .93)', h * .008);
+      g.fillStyle = 'rgba(255, 255, 255, .45)'; g.beginPath(); g.ellipse(bx - s * .55, by + s * .3, s * .08, s * .2, .5, 0, TAU); g.fill();
+      for (let j = 0; j < 3; j++) { g.beginPath(); g.arc(bx + (j - 1) * s * .45, by + s * .45, s * .09, 0, TAU); ink(g, '#ffb02e', h * .004); }
+      g.beginPath(); g.moveTo(bx - s * .15, by + s * .7); g.lineTo(bx + s * .15, by + s * .7); g.lineTo(bx + s * .3, by + s * .9);
+      g.lineTo(bx - s * .3, by + s * .9); g.closePath(); ink(g, 'rgba(210, 240, 255, .9)', h * .006);
+    }
     for (let j = 0; j < 12; j++) { const q = (lt * 1.6 + hash(seed, j)) % 1, sx = (hash(seed, j + 7) - .5) * 2;
-      drop(g, bx + sx * s * (.3 + .9 * q), by - s * .1 - Math.sin(q * PI) * s * .7, h * .016, sx * q, '#ff3355'); }
-    g.lineCap = 'round'; g.strokeStyle = INK; g.lineWidth = h * .022; g.beginPath(); g.moveTo(bx + s * .5, by); g.lineTo(bx + s * 1.1, by - s * .55);
-    g.stroke();
-    g.strokeStyle = '#c9d0d8'; g.lineWidth = h * .01; g.stroke();
+      drop(g, bx + sx * s * (.3 + .9 * q), rim - s * .1 - Math.sin(q * PI) * s * .7, h * .016, sx * q, B ? '#f2643c' : '#ff3355'); }
+    if (!B) {
+      g.lineCap = 'round'; g.strokeStyle = INK; g.lineWidth = h * .022; g.beginPath(); g.moveTo(bx + s * .5, by); g.lineTo(bx + s * 1.1, by - s * .55);
+      g.stroke();
+      g.strokeStyle = '#c9d0d8'; g.lineWidth = h * .01; g.stroke();
+    }
     paint(g, body(c.A, bp('drink', 0), w * .2, h * 1.02, fh * .9, { hand: q => flute(q, fh * .18) }));
     c.word = [w * .3, h * .3, -.14];
   },
   pretzel(c) {
-    const { g, w, h, k, fh, gy, lt, seed } = c, px = w * .64, py = h * .58, r = h * .3;
-    g.save(); g.translate(px, py); g.rotate(-.1 + Math.sin(lt * 3) * .03); g.lineCap = 'round';
+    const { g, w, h, k, fh, gy, lt, seed } = c, px = w * .64, py = h * .58, r = h * .3, rot = -.1 + Math.sin(lt * 3) * .03, T = photo('pretzel');
     const knot = () => { g.beginPath(); g.moveTo(-r * .9, r * .5); g.bezierCurveTo(-r * 1.4, -r * .6, -r * .2, -r * 1.1, 0, -r * .1);
       g.bezierCurveTo(r * .2, -r * 1.1, r * 1.4, -r * .6, r * .9, r * .5); g.moveTo(-r * .7, r * .6); g.lineTo(r * .4, -r * .1);
       g.moveTo(r * .7, r * .6); g.lineTo(-r * .4, -r * .1); };
-    knot(); g.strokeStyle = INK; g.lineWidth = r * .32; g.stroke(); g.strokeStyle = '#b5651d'; g.lineWidth = r * .24; g.stroke();
-    g.strokeStyle = 'rgba(255, 220, 160, .45)'; g.lineWidth = r * .07; g.stroke();
-    g.fillStyle = '#fff'; for (let j = 0; j < 14; j++) g.fillRect((hash(seed, j) - .5) * r * 1.8, (hash(seed, j + 14) - .7) * r * 1.2, r * .05, r * .035);
-    g.restore();
+    if (T) pic(g, 'pretzel', 'center', px, py - r * .1, r * 2.3, rot);
+    else {
+      g.save(); g.translate(px, py); g.rotate(rot); g.lineCap = 'round';
+      knot(); g.strokeStyle = INK; g.lineWidth = r * .32; g.stroke(); g.strokeStyle = '#b5651d'; g.lineWidth = r * .24; g.stroke();
+      g.strokeStyle = 'rgba(255, 220, 160, .45)'; g.lineWidth = r * .07; g.stroke();
+      g.fillStyle = '#fff'; for (let j = 0; j < 14; j++) g.fillRect((hash(seed, j) - .5) * r * 1.8, (hash(seed, j + 14) - .7) * r * 1.2, r * .05, r * .035);
+      g.restore();
+    }
     const v = body(c.V, POSE.pretzel, px + c.shake, gy - fh * .02, fh * 1.05, { face: -1, rot: .35 * k, air: 1 }), hd = at(v, 'head'), hr = at(v, 'hr');
     paint(g, v);
+    if (T) {  // the bottom of the knot laps over the victim: tied in
+      g.save(); g.beginPath(); g.rect(px - r * 1.3, py + r * .12, r * 2.6, r * 1.2); g.clip(); pic(g, 'pretzel', 'center', px, py - r * .1, r * 2.3, rot); g.restore();
+    }
     spiral(g, hd[0], hd[1] - hr * 1.3, hr, lt * 8, INK, h * .008);
     paint(g, body(c.A, POSE.dust, w * .2, gy, fh));
-    c.word = [w * .38, h * .3, -.12];
+    c.word = [w * .4, h * .62, -.12];
   },
   bones(c) {
     const { g, w, h, fh, gy, lt, seed } = c, cx = w * .64, kk = clamp(lt / .35), fall = out3(kk);
@@ -1030,21 +1230,28 @@ const END = {
     c.word = [w * .62, h * .26, .12];
   },
   framed(c) {
-    const { g, w, h, k, fh, lt, seed } = c, cx = w * .63, cy = h * .45, fw = h * .52, fhh = h * .7, tilt = .06 + Math.sin(lt * 6) * .08 * (1 - clamp(lt));
+    const { g, w, h, k, lt, seed } = c, cx = w * .63, cy = h * .45, tilt = .06 + Math.sin(lt * 6) * .08 * (1 - clamp(lt)), F = photo('frame');
+    let fw = h * .52, fhh = h * .7, iw = fw * .76, ih = fhh * .8, ic = [0, 0];
+    if (F) {  // a real gilt frame: the victim goes in its opening
+      fw = fhh * F.w / F.h; const [x0, y0, x1, y1] = F.p.inner || [.15, .15, .85, .85];
+      iw = fw * (x1 - x0); ih = fhh * (y1 - y0); ic = [fw * ((x0 + x1) / 2 - .5), fhh * ((y0 + y1) / 2 - .5)];
+    }
     g.strokeStyle = INK; g.lineWidth = h * .006; g.beginPath(); g.moveTo(cx - fw * .3, cy - fhh * .5); g.lineTo(cx, cy - fhh * .72);
     g.lineTo(cx + fw * .3, cy - fhh * .5); g.stroke();
     g.beginPath(); g.arc(cx, cy - fhh * .72, h * .012, 0, TAU); ink(g, '#c9d0d8', h * .004);
     g.save(); g.translate(cx, cy); g.rotate(tilt);
-    g.fillStyle = 'rgba(0, 0, 0, .35)'; g.fillRect(-fw / 2 + h * .02, -fhh / 2 + h * .025, fw, fhh);
-    const gr = g.createLinearGradient(-fw / 2, -fhh / 2, fw / 2, fhh / 2); gr.addColorStop(0, '#ffe08a'); gr.addColorStop(.5, '#c8902a');
-    gr.addColorStop(1, '#ffe08a');
-    g.beginPath(); g.rect(-fw / 2, -fhh / 2, fw, fhh); ink(g, gr, h * .008);
-    const iw = fw * .76, ih = fhh * .8;
+    if (!F) {
+      g.fillStyle = 'rgba(0, 0, 0, .35)'; g.fillRect(-fw / 2 + h * .02, -fhh / 2 + h * .025, fw, fhh);
+      const gr = g.createLinearGradient(-fw / 2, -fhh / 2, fw / 2, fhh / 2); gr.addColorStop(0, '#ffe08a'); gr.addColorStop(.5, '#c8902a');
+      gr.addColorStop(1, '#ffe08a');
+      g.beginPath(); g.rect(-fw / 2, -fhh / 2, fw, fhh); ink(g, gr, h * .008);
+    }
+    g.save(); g.translate(ic[0], ic[1]);
     const bgr = g.createRadialGradient(0, -ih * .1, 0, 0, 0, ih * .7); bgr.addColorStop(0, '#f6e7c4'); bgr.addColorStop(1, '#a7865a');
-    g.beginPath(); g.rect(-iw / 2, -ih / 2, iw, ih); ink(g, bgr, h * .006);
-    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { g.beginPath(); g.arc(sx * fw * .44, sy * fhh * .45, h * .025, 0, TAU);
+    g.beginPath(); g.rect(-iw / 2, -ih / 2, iw, ih); ink(g, bgr, F ? 0 : h * .006);
+    if (!F) for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { g.beginPath(); g.arc(sx * fw * .44, sy * fhh * .45, h * .025, 0, TAU);
       ink(g, '#ffe08a', h * .004); }
-    g.save(); g.beginPath(); g.rect(-iw / 2, -ih / 2, iw, ih); g.clip();
+    g.beginPath(); g.rect(-iw / 2, -ih / 2, iw, ih); g.clip();
     paint(g, body(c.V, POSE.star, 0, ih * .5, ih * .95, { face: -1, sx: lerp(1, 1.35, k), sy: lerp(1.1, .95, k) }));
     g.strokeStyle = 'rgba(255, 255, 255, .85)'; g.lineWidth = h * .005; const o = [iw * .12, -ih * .15];
     for (let j = 0; j < 7; j++) { const q = j * TAU / 7 + hash(seed, j), L = ih * (.25 + .3 * hash(seed, j + 7)); g.beginPath(); g.moveTo(...o);
@@ -1053,13 +1260,14 @@ const END = {
     g.fillStyle = 'rgba(255, 255, 255, .18)'; g.beginPath(); g.moveTo(-iw / 2, -ih / 2); g.lineTo(-iw * .1, -ih / 2); g.lineTo(-iw / 2, ih * .1);
     g.closePath(); g.fill();
     g.restore();
+    if (F) pic(g, 'frame', [.5, .5], 0, 0, [fw, fhh]);
     const name = (c.V.name || 'GUEST').toUpperCase(), pw = fw * .7, fs = h * .032;
     g.beginPath(); g.rect(-pw / 2, fhh / 2 - h * .005, pw, h * .055); ink(g, '#d9b25a', h * .005);
     g.font = `${fs}px ${BUNGEE}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#3a2408';
     const tw = g.measureText(name).width; g.save(); g.translate(0, fhh / 2 + h * .023); if (tw > pw * .9) g.scale(pw * .9 / tw, 1);
     g.fillText(name, 0, 0); g.restore();
     g.restore();
-    paint(g, body(c.A, bp('smile'), w * .2, h * 1.02, fh * .95));
+    paint(g, body(c.A, bp('smile'), w * .2, h * 1.02, c.fh * .95));
     c.word = [w * .3, h * .28, -.14];
   },
 };
@@ -1156,7 +1364,7 @@ const fill = (sc, spec) => ({ ...spec, cap: names(sc, spec.cap), say: names(sc, 
 const TILT = [-.022, .018, .02, -.016];
 
 function panel(g, w, h, sc, spec, lt = 1) {  // one panel at the origin, clipped and bordered
-  sc = sc || {}; spec = known(spec, ALL, 'uppercut');
+  sc = sc || {}; warm(); spec = known(spec, ALL, 'uppercut');
   g.save(); g.beginPath(); g.rect(0, 0, w, h); g.clip();
   content(g, w, h, sc, fill(sc, spec), lt, 0);
   g.restore(); g.lineWidth = h * .02; g.strokeStyle = INK; g.strokeRect(0, 0, w, h);
@@ -1173,8 +1381,8 @@ function settled(g, sc, fin, spec, i, pw, ph) {  // a finished panel never chang
   let cv = box.get(key);
   if (!cv) {
     cv = Object.assign(document.createElement('canvas'), { width: Math.ceil(pw * s), height: Math.ceil(ph * s) });
-    const q = cv.getContext('2d'); q.scale(cv.width / pw, cv.height / ph); content(q, pw, ph, sc, spec, PANEL, i);
-    if (box.size > 16) box.clear(); box.set(key, cv);
+    const q = cv.getContext('2d'), m0 = missed; q.scale(cv.width / pw, cv.height / ph); content(q, pw, ph, sc, spec, PANEL, i);
+    if (missed === m0) { if (box.size > 16) box.clear(); box.set(key, cv); }
   }
   return cv;
 }
@@ -1246,7 +1454,7 @@ function koCard(g, W, H, sc, fin, kt, u) {
   }
 }
 function draw(g, W, H, sc, t) {
-  sc = sc || {}; const fin = norm(sc.fin), u = H / 100, T4 = 4 * PANEL, end = T4 + KO;
+  sc = sc || {}; warm(); const fin = norm(sc.fin), u = H / 100, T4 = 4 * PANEL, end = T4 + KO;
   if (!(t >= 0) || t > end) return;
   g.save(); g.globalAlpha = clamp((end - t) / .35);
   g.fillStyle = `rgba(10, 4, 20, ${.7 * clamp(t / .25)})`; g.fillRect(0, 0, W, H);
@@ -1271,5 +1479,6 @@ function cues(fin) {
   return out.sort((a, b) => a[0] - b[0]);
 }
 
-window.Comic = { ACTS, ENDS, length, cues, draw, panel };
+warm(); window.addEventListener('load', warm);  // props.js may come later (async): start decoding long before the first K.O.
+window.Comic = { ACTS, ENDS, length, cues, draw, panel, preload };
 })();

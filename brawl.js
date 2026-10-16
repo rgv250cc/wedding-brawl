@@ -894,8 +894,8 @@ function moshikTick(e, dt) {  // drag a chair in from the edge, sit down near th
     const p = (S.t - e.smokeT0) % 4, p0 = p - dt;
     if (p0 < 1.6 && p >= 1.6) for (let i = 0; i < 3; i++) { const [x, y] = at(e, .88, .06 + i * .03); smoke(x, y, e.h * (.03 + i * .01)); }
   }
-  at_(4.4, () => { const g = pick(GRIPES), w = pick(WHISKEY); m.yell = w; m.yellAt = 4.4 + g.length / 30 + 1.15; talk(e, g); talk(e, w); });
-  if (m.yell) at_(m.yellAt, () => { say(e, m.yell.toUpperCase().slice(0, 40)); snd('gasp', e.x, { pitch: .7 }); });
+  at_(4.4, () => { const g = pick(GRIPES), w = pick(WHISKEY); m.yell = w; talk(e, g); talk(e, w); });
+  if (m.yell && !m.yelled && S.subs[0] && S.subs[0].who === e && S.subs[0].text === m.yell) { m.yelled = true; say(e, m.yell.toUpperCase().slice(0, 40)); snd('gasp', e.x, { pitch: .7 }); }  // as he starts yelling it
 }
 function cigTip(e) {  // where the lit end is: at his mouth, or (no camera) wherever his hand has got to
   if (!e.nocam) return at(e, .87, .13);
@@ -1679,15 +1679,28 @@ function drawPerson(e) {
   if (e.state === 'cursed' && e.curse === 'carry' && !(e.curseSp && e.curseSp.path === 'slide')) drawCarry(e);
 }
 function drawChair(e) {  // Moshik's chair: dragged tilted behind him, then set down under him
-  const P = prop('xchair');
-  if (!P) return;
-  const h = e.h, base = P.base || [.5, 1], seat = P.seat || [.5, .55], ih = h * .27 / Math.max(.15, base[1] - seat[1]), iw = ih * P.im.width / P.im.height;
+  const P = prop('xchair'), h = e.h;
   ctx.save();
   if (e.chair === 1) { ctx.translate(e.X - e.face * h * .2, feetY(e.z)); ctx.rotate(-e.face * .45); }  // tipped back on two legs, scraping along
   else ctx.translate(e.X - e.face * h * .03, feetY(e.z));
-  ctx.scale((P.facing === 'left' ? -1 : 1) * e.face, 1);
-  ctx.drawImage(P.im, -base[0] * iw, -base[1] * ih, iw, ih);
+  if (P) {
+    const base = P.base || [.5, 1], seat = P.seat || [.5, .55], ih = h * .27 / Math.max(.15, base[1] - seat[1]), iw = ih * P.im.width / P.im.height;
+    ctx.scale((P.facing === 'left' ? -1 : 1) * e.face, 1);
+    ctx.drawImage(P.im, -base[0] * iw, -base[1] * ih, iw, ih);
+  } else drawnChair(h, e.face);  // the photo isn't there (an older props.js, or still decoding): he never sits on air
   ctx.restore();
+}
+function drawnChair(h, face) {  // the same dining chair in ink, the size of the photo one: seat .27h up, back behind him, feet at the origin
+  ctx.scale(face, 1); ctx.lineCap = ctx.lineJoin = 'round';
+  const bar = (pts, w, col) => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x * h, y * h) : ctx.moveTo(x * h, y * h));
+    ctx.strokeStyle = '#1e110a'; ctx.lineWidth = w * h + Math.max(1.5, h * .008); ctx.stroke(); ctx.strokeStyle = col; ctx.lineWidth = w * h; ctx.stroke(); };
+  bar([[-.075, -.02], [-.07, -.27]], .016, '#3f2416'); bar([[.165, -.03], [.16, -.26]], .016, '#3f2416');  // the far legs
+  bar([[-.12, 0], [-.105, -.27], [-.135, -.5]], .022, '#5b3320'); bar([[.125, 0], [.12, -.27]], .02, '#5b3320');  // back post and front leg
+  bar([[-.13, -.46], [-.08, -.49]], .02, '#5b3320'); bar([[-.12, -.38], [-.08, -.4]], .012, '#6d3f27');  // the backrest's rails
+  ctx.beginPath(); ctx.roundRect(-.13 * h, -.31 * h, .3 * h, .05 * h, .015 * h); ctx.fillStyle = '#3e6d98'; ctx.fill();  // the blue seat
+  ctx.strokeStyle = '#1e110a'; ctx.lineWidth = Math.max(1.5, h * .008); ctx.stroke();
+  ctx.fillStyle = '#2c5072'; ctx.fillRect(-.12 * h, -.275 * h, .28 * h, .012 * h);
+  ctx.fillStyle = 'rgba(255, 255, 255, .25)'; ctx.fillRect(-.11 * h, -.302 * h, .24 * h, .008 * h);
 }
 function cigInHand(e) {  // between the fingers, pointing out of the fist; the tip glows while he drags on it
   const P = prop('cigarette');

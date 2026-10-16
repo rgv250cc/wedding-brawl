@@ -67,7 +67,7 @@ await p.waitForTimeout(700);
 const blockSet = () => p.evaluate(() => { const c = Brawl.state.players[1]; c.lv = { ...c.lv, block: 1, think: 99, rate: 0, speed: 0, combo: 0, grab: 0, roll: 0 }; });
 await setup(.05); await blockSet(); await tap('k', 0); await p.waitForTimeout(160); s = await st();
 check(s.c === 'block' && s.hp === 112, 'a low kick is blocked, with no chip from a light blow', `state ${s.c}, hp ${s.hp.toFixed(1)}`);
-await p.waitForTimeout(600); await setup(.05); await p.evaluate(() => { const c = Brawl.state.players[1]; Object.assign(c, { state: 'roll', st: .82, roll: { kind: 'fwd', t: .95, dir: [0, 0], v: 0, safe: [.05, .25] } }); });
+await p.waitForTimeout(600); await setup(.05); await p.evaluate(() => { const c = Brawl.state.players[1]; Object.assign(c, { state: 'roll', st: .1, y: 0, roll: { kind: 'side', t: 1.5, dir: [0, 0], v: 0, safe: null } }); });
 await tap('k', 0); await p.waitForTimeout(160); s = await st();
 check(s.c === 'down', 'a low kick trips someone at the end of a roll', `state ${s.c}`);
 await p.waitForTimeout(600); await setup(.04); await blockSet(); await tap('l', 0); await p.waitForTimeout(80); s = await st();
